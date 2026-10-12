@@ -24,6 +24,7 @@ class MainActivity : Activity() {
         "Future you is watching. Make them proud."
     )
     private val fg = 0xFFF1F2F7.toInt()
+    private val grey = 0xFF8B90A3.toInt()
     private fun dp(i: Int) = (i * resources.displayMetrics.density).toInt()
 
     private fun tx(s: String, sz: Float, c: Int = fg, b: Boolean = false) = TextView(this).apply {
@@ -63,7 +64,17 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
 
-        l.addView(tx("Daily reel limit", 14f, 0xFF8B90A3.toInt()))
+        // ---- unproductive screen time ----
+        var tt = 0L; var rt = 0L
+        Store.APPS.keys.forEach { tt += Store.time(this, "t", it); rt += Store.time(this, "r", it) }
+        l.addView(tx("Unproductive screen time today", 14f, grey).apply { setPadding(0, dp(24), 0, 0) })
+        l.addView(tx(Store.fmt(tt), 32f, b = true))
+        l.addView(tx("Reels / Shorts: ${Store.fmt(rt)}", 17f, Store.color(h), true))
+        Store.APPS.forEach { (pkg, name) ->
+            l.addView(tx("$name: ${Store.fmt(Store.time(this, "t", pkg))} total · ${Store.fmt(Store.time(this, "r", pkg))} reels", 14f))
+        }
+
+        l.addView(tx("Daily reel limit", 14f, grey).apply { setPadding(0, dp(24), 0, 0) })
         val lf = field("30", InputType.TYPE_CLASS_NUMBER).apply { setText(lim.toString()) }
         l.addView(lf)
         l.addView(btn("Save limit") {
@@ -71,7 +82,7 @@ class MainActivity : Activity() {
         })
         l.addView(btn("Reset today's count") { Store.setCount(this, 0); build() })
 
-        l.addView(tx("Tasks (shown on the widget when you pass your limit)", 14f, 0xFF8B90A3.toInt()))
+        l.addView(tx("Tasks (the widget shows a new one for every reel past your limit)", 14f, grey))
         val tf = field("Add a task", InputType.TYPE_CLASS_TEXT)
         l.addView(tf)
         l.addView(btn("Add task") {
@@ -84,6 +95,12 @@ class MainActivity : Activity() {
             })
         }
 
-        l.addView(tx("\"${quotes.random()}\"", 17f).apply { setPadding(0, dp(24), 0, 0) })
+        l.addView(tx("\"${quotes.random()}\"", 17f).apply { setPadding(0, dp(24), 0, dp(12)) })
+
+        // ---- fallback + diagnostics ----
+        l.addView(btn(if (Store.countAll(this)) "Count ALL scrolling: ON" else "Count ALL scrolling: OFF") {
+            Store.setCountAll(this, !Store.countAll(this)); build()
+        })
+        l.addView(tx("Use this if reels aren't being counted. Last event seen: ${Store.dbg(this)}", 12f, grey))
     }
 }
