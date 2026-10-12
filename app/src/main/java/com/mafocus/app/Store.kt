@@ -53,4 +53,8 @@ object Store {
     fun setCountAll(c: Context, v: Boolean) = p(c).edit().putBoolean("all", v).apply()
     fun dbg(c: Context) = p(c).getString("dbg", "none yet") ?: "none yet"
     fun setDbg(c: Context, s: String) = p(c).edit().putString("dbg", s).apply()
+
+    fun prefs(c: Context) = p(c)
+    fun widgetOn(c: Context) = p(c).getBoolean("widget", true)
+    fun setWidgetOn(c: Context, v: Boolean) = p(c).edit().putBoolean("widget", v).apply()
 }

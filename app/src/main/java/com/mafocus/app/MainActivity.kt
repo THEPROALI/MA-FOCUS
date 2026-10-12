@@ -137,6 +137,14 @@ class MainActivity : Activity() {
             row(s, name, "${Store.fmt(Store.time(this, "t", pkg))}  ·  ${Store.fmt(Store.time(this, "r", pkg))} reels")
         }
 
+        // ---- widget ----
+        val w = card(root)
+        w.addView(label("Floating widget"))
+        w.addView(tx(if (Store.widgetOn(this)) "Shown while Instagram or Shorts are open." else "Hidden. Reels are still counted.", 13f, MU))
+        btn(w, if (Store.widgetOn(this)) "Turn widget off" else "Turn widget on", !Store.widgetOn(this)) {
+            Store.setWidgetOn(this, !Store.widgetOn(this)); build()
+        }
+
         // ---- limit ----
         val l = card(root)
         l.addView(label("Daily reel limit"))
