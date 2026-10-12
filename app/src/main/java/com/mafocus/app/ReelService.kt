@@ -28,6 +28,10 @@ class ReelService : AccessibilityService() {
     private var tv: TextView? = null
     private val ui = Handler(Looper.getMainLooper())
     private val evalRun = Runnable { evaluate() }
+    private val countRun = Runnable { commit() }
+    private var bursting = false
+    private var burstReels = false
+    private var burstPkg = ""
 
     // Widget is shown for the whole app here; other apps only while reels/shorts are open
     private val always = setOf("com.instagram.android")
@@ -90,19 +94,44 @@ class ReelService : AccessibilityService() {
         }
     }
 
+    // A swipe fires many scroll events. We decide once at the start of the swipe whether it is
+    // a reel/short, then count it once the swipe has settled (450 ms of quiet).
     private fun onScroll(pkg: String, e: AccessibilityEvent) {
+        if (!bursting) {
+            bursting = true; burstPkg = pkg
+            if (fgPkg != pkg) { closeSession(); openSession(pkg) }
+            burstReels = isReelsEvent(pkg, e)
+            Store.setDbg(this, "${pkg.substringAfterLast('.')} / ${e.className?.toString()?.substringAfterLast('.')} / reels=$burstReels")
+            show(burstReels || pkg in always)
+        }
+        ui.removeCallbacks(countRun)
+        ui.postDelayed(countRun, 450)
+    }
+
+    private fun commit() {
+        bursting = false
+        if (!burstReels) return
         val now = SystemClock.elapsedRealtime()
-        if (now - last < 900) return          // one swipe = many scroll events; count once
+        if (now - last < 600) return
         last = now
-        if (fgPkg != pkg) { closeSession(); openSession(pkg) }
-        val reels = Store.countAll(this) || isReels(pkg)
-        Store.setDbg(this, "${pkg.substringAfterLast('.')} / ${e.className?.toString()?.substringAfterLast('.')} / reels=$reels")
-        show(reels || pkg in always)
-        if (!reels) return
-        Store.addTime(this, "r", pkg, if (lastReel == 0L) 5000L else minOf(now - lastReel, 60000L))
+        Store.addTime(this, "r", burstPkg, if (lastReel == 0L) 5000L else minOf(now - lastReel, 60000L))
         lastReel = now
         Store.setCount(this, Store.count(this) + 1)
         refresh()
+    }
+
+    // Best signal: the view that scrolled (or its parents) has a reels/shorts id.
+    private fun isReelsEvent(pkg: String, e: AccessibilityEvent): Boolean {
+        if (Store.countAll(this)) return true
+        val ks = keys[pkg] ?: return true
+        var n: AccessibilityNodeInfo? = e.source
+        var d = 0
+        while (n != null && d < 6) {
+            val id = n.viewIdResourceName
+            if (id != null && ks.any { id.contains(it, true) }) return true
+            n = n.parent; d++
+        }
+        return isReels(pkg)
     }
 
     private fun isReels(pkg: String): Boolean {
@@ -111,7 +140,7 @@ class ReelService : AccessibilityService() {
         val q = ArrayDeque<AccessibilityNodeInfo>()
         q.add(root)
         var n = 0
-        while (q.isNotEmpty() && n < 400) {
+        while (q.isNotEmpty() && n < 1000) {
             val x = q.removeFirst(); n++
             val id = x.viewIdResourceName
             if (id != null && ks.any { id.contains(it, true) }) return true
@@ -151,7 +180,7 @@ class ReelService : AccessibilityService() {
 
     override fun onInterrupt() {}
     override fun onDestroy() {
-        ui.removeCallbacks(evalRun)
+        ui.removeCallbacks(evalRun); ui.removeCallbacks(countRun)
         closeSession()
         try { unregisterReceiver(screenOff) } catch (_: Exception) {}
         tv?.let { try { wm?.removeView(it) } catch (_: Exception) {} }
