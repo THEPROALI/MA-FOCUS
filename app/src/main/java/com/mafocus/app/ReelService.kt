@@ -44,6 +44,13 @@ class ReelService : AccessibilityService() {
         "com.snapchat.android" to listOf("spotlight")
     )
 
+    private val stopMsgs = listOf(
+        "Is more scrolling really required?",
+        "Close the app. Your goals are waiting.",
+        "You've already gone past your limit. Stop here.",
+        "Put the phone down. Do one thing that matters."
+    )
+
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) { closeSession(); show(false) }
     }
@@ -54,6 +61,7 @@ class ReelService : AccessibilityService() {
             setTextColor(Color.WHITE); textSize = 14f
             typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setPadding(40, 16, 40, 16); visibility = View.GONE
+            maxWidth = (resources.displayMetrics.widthPixels * 0.9).toInt()
         }
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
@@ -165,10 +173,13 @@ class ReelService : AccessibilityService() {
     private fun refresh() {
         val c = Store.count(this); val l = Store.limit(this); val h = Store.health(this)
         var s = "${Store.face(h)}  $c / $l"
-        if (c > l) {
+        val over = c - l
+        // Every 5th reel past the limit shows a reminder; the next reel goes back to the plain counter.
+        if (over > 0 && over % 5 == 0) {
+            val n = over / 5                      // 1st, 2nd, 3rd... reminder
             val t = Store.tasks(this)
-            // a different task for every extra reel past the limit
-            if (t.isNotEmpty()) s += "\nDo this instead: ${t[(c - l - 1) % t.size]}"
+            s += if (n <= 2 && t.isNotEmpty()) "\nTask: ${t[(n - 1) % t.size]}"
+                 else "\n" + stopMsgs[(n - 1) % stopMsgs.size]
         }
         tv?.apply {
             if (text.toString() != s) {
