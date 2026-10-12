@@ -9,6 +9,8 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
@@ -24,6 +26,11 @@ class ReelService : AccessibilityService() {
     private var fgSince = 0L
     private var wm: WindowManager? = null
     private var tv: TextView? = null
+    private val ui = Handler(Looper.getMainLooper())
+    private val evalRun = Runnable { evaluate() }
+
+    // Widget is shown for the whole app here; other apps only while reels/shorts are open
+    private val always = setOf("com.instagram.android")
 
     // view-id fragments that mean "reels / shorts screen is open"
     private val keys = mapOf(
@@ -58,25 +65,39 @@ class ReelService : AccessibilityService() {
         if (e == null) return
         val pkg = e.packageName?.toString() ?: return
         when (e.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindow(pkg)
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                if (isNoise(pkg)) return
+                // Don't trust a single event (popups, our own overlay, system dialogs cause flicker).
+                // Wait a moment, then check which app is really on screen.
+                ui.removeCallbacks(evalRun)
+                ui.postDelayed(evalRun, 400)
+            }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (Store.APPS.containsKey(pkg)) onScroll(pkg, e)
         }
     }
 
-    private fun onWindow(pkg: String) {
-        if (pkg == "com.android.systemui" || pkg.contains("inputmethod") || pkg.contains("keyboard")) return
-        if (pkg == fgPkg) return
-        closeSession()
-        if (Store.APPS.containsKey(pkg)) { openSession(pkg); show(true) } else show(false)
+    private fun isNoise(p: String) =
+        p == "com.android.systemui" || p.contains("inputmethod") || p.contains("keyboard")
+
+    private fun evaluate() {
+        val p = rootInActiveWindow?.packageName?.toString() ?: return
+        if (isNoise(p)) return
+        if (Store.APPS.containsKey(p)) {
+            if (fgPkg != p) { closeSession(); openSession(p); show(p in always) }
+            else if (p in always) show(true)
+        } else if (fgPkg != null || tv?.visibility == View.VISIBLE) {
+            closeSession(); show(false)
+        }
     }
 
     private fun onScroll(pkg: String, e: AccessibilityEvent) {
         val now = SystemClock.elapsedRealtime()
         if (now - last < 900) return          // one swipe = many scroll events; count once
         last = now
-        if (fgPkg != pkg) { closeSession(); openSession(pkg); show(true) }
+        if (fgPkg != pkg) { closeSession(); openSession(pkg) }
         val reels = Store.countAll(this) || isReels(pkg)
         Store.setDbg(this, "${pkg.substringAfterLast('.')} / ${e.className?.toString()?.substringAfterLast('.')} / reels=$reels")
+        show(reels || pkg in always)
         if (!reels) return
         Store.addTime(this, "r", pkg, if (lastReel == 0L) 5000L else minOf(now - lastReel, 60000L))
         lastReel = now
@@ -106,7 +127,9 @@ class ReelService : AccessibilityService() {
     }
 
     private fun show(v: Boolean) {
-        tv?.visibility = if (v) View.VISIBLE else View.GONE
+        val t = tv ?: return
+        val want = if (v) View.VISIBLE else View.GONE
+        if (t.visibility != want) t.visibility = want
         if (v) refresh()
     }
 
@@ -119,13 +142,16 @@ class ReelService : AccessibilityService() {
             if (t.isNotEmpty()) s += "\nDo this instead: ${t[(c - l - 1) % t.size]}"
         }
         tv?.apply {
-            text = s
-            background = GradientDrawable().apply { cornerRadius = 60f; setColor(Store.color(h)) }
+            if (text.toString() != s) {
+                text = s
+                background = GradientDrawable().apply { cornerRadius = 60f; setColor(Store.color(h)) }
+            }
         }
     }
 
     override fun onInterrupt() {}
     override fun onDestroy() {
+        ui.removeCallbacks(evalRun)
         closeSession()
         try { unregisterReceiver(screenOff) } catch (_: Exception) {}
         tv?.let { try { wm?.removeView(it) } catch (_: Exception) {} }
