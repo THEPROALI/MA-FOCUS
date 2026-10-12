@@ -7,6 +7,12 @@ import java.util.Date
 import java.util.Locale
 
 object Store {
+    val APPS = linkedMapOf(
+        "com.instagram.android" to "Instagram",
+        "com.google.android.youtube" to "YouTube",
+        "com.facebook.katana" to "Facebook",
+        "com.snapchat.android" to "Snapchat"
+    )
     private fun p(c: Context) = c.getSharedPreferences("mf", Context.MODE_PRIVATE)
     private fun today() = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
 
@@ -30,4 +36,21 @@ object Store {
     fun tasks(c: Context): MutableList<String> =
         (p(c).getString("tasks", "") ?: "").split("\n").filter { it.isNotBlank() }.toMutableList()
     fun saveTasks(c: Context, t: List<String>) = p(c).edit().putString("tasks", t.joinToString("\n")).apply()
+
+    // kind: "t" = total time in app, "r" = time spent on reels/shorts
+    fun addTime(c: Context, kind: String, pkg: String, ms: Long) {
+        if (ms <= 0) return
+        val k = "${kind}_${pkg}_${today()}"
+        p(c).edit().putLong(k, p(c).getLong(k, 0) + ms).apply()
+    }
+    fun time(c: Context, kind: String, pkg: String) = p(c).getLong("${kind}_${pkg}_${today()}", 0)
+    fun fmt(ms: Long): String {
+        val s = ms / 1000
+        return if (s >= 3600) "${s / 3600}h ${(s % 3600) / 60}m" else if (s >= 60) "${s / 60}m ${s % 60}s" else "${s}s"
+    }
+
+    fun countAll(c: Context) = p(c).getBoolean("all", false)
+    fun setCountAll(c: Context, v: Boolean) = p(c).edit().putBoolean("all", v).apply()
+    fun dbg(c: Context) = p(c).getString("dbg", "none yet") ?: "none yet"
+    fun setDbg(c: Context, s: String) = p(c).edit().putString("dbg", s).apply()
 }
