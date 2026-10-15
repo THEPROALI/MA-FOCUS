@@ -10,26 +10,37 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
+import kotlin.math.abs
 
 class ReelService : AccessibilityService() {
+    companion object { var instance: ReelService? = null }
+
     private var last = 0L
+    private var lastEvt = 0L
+    private var lockUntil = 0L
+    private var lastDbg = 0L
     private var lastEval = 0L
     private var lastReel = 0L
+    private var acc = 0f
+    private var settlePkg = ""
     private var fgPkg: String? = null
     private var fgSince = 0L
     private var wm: WindowManager? = null
     private var tv: TextView? = null
+    private var attached = false
+    private lateinit var lp: WindowManager.LayoutParams
     private val ui = Handler(Looper.getMainLooper())
     private val evalRun = Runnable { evaluate() }
+    private val settleRun = Runnable { settle() }
 
     // Widget is shown for the whole app here; other apps only while reels/shorts are open
     private val always = setOf("com.instagram.android")
@@ -66,22 +77,28 @@ class ReelService : AccessibilityService() {
     }
 
     override fun onServiceConnected() {
+        instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val t = TextView(this).apply {
+        tv = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 14f
             typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-            setPadding(40, 16, 40, 16); visibility = View.GONE
+            setPadding(40, 16, 40, 16)
             maxWidth = (resources.displayMetrics.widthPixels * 0.9).toInt()
+            setOnClickListener { openApp() }          // tap the widget -> open MA FOCUS
         }
-        val lp = WindowManager.LayoutParams(
+        lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 90 }
-        wm?.addView(t, lp); tv = t
         registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
         Store.prefs(this).registerOnSharedPreferenceChangeListener(prefListener)
+    }
+
+    private fun openApp() {
+        startActivity(Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
@@ -90,8 +107,6 @@ class ReelService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (isNoise(pkg)) return
-                // Don't trust a single event (popups, our own overlay, system dialogs cause flicker).
-                // Wait a moment, then check which app is really on screen.
                 ui.removeCallbacks(evalRun)
                 ui.postDelayed(evalRun, 400)
             }
@@ -108,33 +123,57 @@ class ReelService : AccessibilityService() {
         if (Store.APPS.containsKey(p)) {
             if (fgPkg != p) { closeSession(); openSession(p); show(p in always) }
             else if (p in always) show(true)
-        } else if (fgPkg != null || tv?.visibility == View.VISIBLE) {
+        } else if (fgPkg != null || attached) {
             closeSession(); show(false)
         }
     }
 
-    // Counts at the START of a swipe (so a swipe is never lost), then ignores the rest of
-    // that swipe's scroll events for 650 ms. Detection is retried every 120 ms until it succeeds.
+    // A reel is counted only when the pager has really moved by ~a page (sum of vertical scroll
+    // distance). Half-swipes that snap back cancel out, and holding a finger down counts nothing.
     private fun onScroll(pkg: String, e: AccessibilityEvent) {
         val now = SystemClock.elapsedRealtime()
-        if (now - last < 650 || now - lastEval < 120) return
-        lastEval = now
+        if (now < lockUntil) return
+        if (now - lastEvt > 3000) acc = 0f
+        lastEvt = now
         if (fgPkg != pkg) { closeSession(); openSession(pkg) }
-        val reels = isReelsEvent(pkg, e)
-        Store.setDbg(this, "${Store.APPS[pkg]} | ${e.source?.viewIdResourceName?.substringAfter(":id/")} | reels=$reels")
-        show(reels || pkg in always)
-        if (!reels) return
+        val dy = if (Build.VERSION.SDK_INT >= 28) e.scrollDeltaY else 0
+        if (now - lastDbg > 300) {
+            lastDbg = now
+            Store.setDbg(this, "${Store.APPS[pkg]} | ${e.source?.viewIdResourceName?.substringAfter(":id/")} | ${e.className?.toString()?.substringAfterLast('.')} | dy=$dy")
+        }
+        if (dy != 0) {
+            acc += dy
+            if (abs(acc) >= resources.displayMetrics.heightPixels * 0.6f) {
+                acc = 0f; lockUntil = now + 500
+                if (isReelsEvent(pkg, e)) countReel(pkg, now)
+            }
+        } else if (now - lastEval >= 250) {
+            // This app doesn't report scroll distance: fall back to counting when scrolling settles.
+            lastEval = now
+            if (isReelsEvent(pkg, e)) { settlePkg = pkg; ui.removeCallbacks(settleRun); ui.postDelayed(settleRun, 450) }
+        }
+    }
+
+    private fun settle() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - last >= 700) countReel(settlePkg, now)
+    }
+
+    private fun countReel(pkg: String, now: Long) {
         last = now
         Store.addTime(this, "r", pkg, if (lastReel == 0L) 5000L else minOf(now - lastReel, 60000L))
         lastReel = now
         Store.setCount(this, Store.count(this) + 1)
+        show(true)
         refresh()
     }
 
-    // Best signal: the view that scrolled (or its parents) has a reels/shorts id.
+    // Is the thing that scrolled a reels/shorts pager (and not e.g. a search box)?
     private fun isReelsEvent(pkg: String, e: AccessibilityEvent): Boolean {
         if (Store.countAll(this)) return true
         val ks = keys[pkg] ?: return true
+        val cls = e.className?.toString() ?: ""
+        if (cls.contains("Edit") || cls.contains("TextView") || cls.contains("Button")) return false
         var n: AccessibilityNodeInfo? = e.source
         var d = 0
         while (n != null && d < 6) {
@@ -163,14 +202,22 @@ class ReelService : AccessibilityService() {
     private fun openSession(p: String) { fgPkg = p; fgSince = SystemClock.elapsedRealtime() }
     private fun closeSession() {
         fgPkg?.let { Store.addTime(this, "t", it, SystemClock.elapsedRealtime() - fgSince) }
-        fgPkg = null; lastReel = 0L
+        fgPkg = null; lastReel = 0L; acc = 0f
+    }
+
+    // The overlay window only exists while it is visible, so nothing is drawn over other apps.
+    private fun attach(v: Boolean) {
+        val t = tv ?: return
+        try {
+            if (v && !attached) { wm?.addView(t, lp); attached = true }
+            else if (!v && attached) { wm?.removeView(t); attached = false }
+        } catch (_: Exception) {}
     }
 
     private fun show(v: Boolean) {
-        val t = tv ?: return
-        val want = if (v && Store.widgetOn(this)) View.VISIBLE else View.GONE
-        if (t.visibility != want) t.visibility = want
-        if (want == View.VISIBLE) refresh()
+        val want = v && Store.widgetOn(this)
+        attach(want)
+        if (want) refresh()
     }
 
     private fun refresh() {
@@ -197,11 +244,11 @@ class ReelService : AccessibilityService() {
 
     override fun onInterrupt() {}
     override fun onDestroy() {
-        ui.removeCallbacks(evalRun)
-        closeSession()
+        if (instance === this) instance = null
+        ui.removeCallbacks(evalRun); ui.removeCallbacks(settleRun)
+        closeSession(); attach(false)
         try { unregisterReceiver(screenOff) } catch (_: Exception) {}
         try { Store.prefs(this).unregisterOnSharedPreferenceChangeListener(prefListener) } catch (_: Exception) {}
-        tv?.let { try { wm?.removeView(it) } catch (_: Exception) {} }
         super.onDestroy()
     }
 }

@@ -110,6 +110,20 @@ class MainActivity : Activity() {
             btn(a, "Enable screen access") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         }
 
+        // ---- next step ----
+        val ns = card(root)
+        ns.addView(label("Next step"))
+        val over = c - lim
+        val nextTask = Store.tasks(this).firstOrNull()
+        ns.addView(tx(when { over > 0 -> "You're $over reels past your limit"; c >= lim * 0.8 -> "Close to your limit"; else -> "${lim - c} reels left today" },
+            17f, if (over > 0) 0xFFE74C3C.toInt() else TX, "sans-serif-medium"))
+        ns.addView(tx(when {
+            over > 0 && nextTask != null -> "Close the reels app now, then do: $nextTask"
+            over > 0 -> "Close the reels app now. Add a task below so you know what to do instead."
+            nextTask != null -> "Next up when you're done scrolling: $nextTask"
+            else -> "Add a task below so you have something better to do."
+        }, 14f, MU).apply { setPadding(0, dp(6), 0, 0) })
+
         // ---- brain ----
         val b = card(root)
         val br = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -144,6 +158,15 @@ class MainActivity : Activity() {
         btn(w, if (Store.widgetOn(this)) "Turn widget off" else "Turn widget on", !Store.widgetOn(this)) {
             Store.setWidgetOn(this, !Store.widgetOn(this)); build()
         }
+
+        // ---- payments ----
+        val up = card(root)
+        up.addView(label("Using UPI or banking apps?"))
+        up.addView(tx("Payment apps refuse to run while any screen-access app is on. Pause MA FOCUS before paying, then turn it back on.", 13f, MU))
+        if (on) btn(up, "Pause screen access", false) {
+            ReelService.instance?.disableSelf()
+            root.postDelayed({ build() }, 700)
+        } else btn(up, "Turn screen access back on") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
 
         // ---- limit ----
         val l = card(root)
