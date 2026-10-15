@@ -94,6 +94,7 @@ class ReelService : AccessibilityService() {
         ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 90 }
         registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
         Store.prefs(this).registerOnSharedPreferenceChangeListener(prefListener)
+        ui.postDelayed(evalRun, 300)   // show the widget straight away if Instagram is already open
     }
 
     private fun openApp() {

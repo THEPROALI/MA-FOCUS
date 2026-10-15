@@ -57,4 +57,6 @@ object Store {
     fun prefs(c: Context) = p(c)
     fun widgetOn(c: Context) = p(c).getBoolean("widget", true)
     fun setWidgetOn(c: Context, v: Boolean) = p(c).edit().putBoolean("widget", v).apply()
+    fun auto(c: Context) = p(c).getBoolean("auto", false)
+    fun setAuto(c: Context, v: Boolean) = p(c).edit().putBoolean("auto", v).apply()
 }

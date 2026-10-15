@@ -2,6 +2,8 @@ package com.mafocus.app
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -73,7 +75,11 @@ class MainActivity : Activity() {
         })
     }
 
-    override fun onResume() { super.onResume(); build() }
+    override fun onResume() {
+        super.onResume()
+        if (Store.auto(this) && Auto.hasUsage(this) && Auto.hasSecure(this)) Auto.start(this)
+        build()
+    }
 
     private fun build() {
         window.statusBarColor = BG; window.navigationBarColor = BG
@@ -101,7 +107,10 @@ class MainActivity : Activity() {
         // ---- screen access ----
         val on = (Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
             .contains(packageName)
-        if (on) {
+        if (Store.auto(this)) {
+            root.addView(tx("●  Automatic mode on  ·  screen access runs only in Instagram & YouTube", 13f, 0xFF2ECC71.toInt(), "sans-serif-medium"),
+                lp(WC, WC).apply { bottomMargin = dp(12) })
+        } else if (on) {
             root.addView(tx("●  Screen access active", 13f, 0xFF2ECC71.toInt(), "sans-serif-medium"),
                 lp(WC, WC).apply { bottomMargin = dp(12) })
         } else {
@@ -159,11 +168,42 @@ class MainActivity : Activity() {
             Store.setWidgetOn(this, !Store.widgetOn(this)); build()
         }
 
+        // ---- automatic mode ----
+        val am = card(root)
+        am.addView(label("Automatic mode"))
+        am.addView(tx("Turns screen access on only while Instagram or YouTube is open and off everywhere else, so UPI apps work normally.", 13f, MU))
+        val okU = Auto.hasUsage(this); val okS = Auto.hasSecure(this)
+        val good = 0xFF2ECC71.toInt(); val bad = 0xFFE74C3C.toInt()
+        am.addView(View(this), lp(MP, dp(8)))
+        row(am, "1. Usage access", if (okU) "Granted" else "Needed", if (okU) good else bad)
+        row(am, "2. Secure settings (one-time, computer)", if (okS) "Granted" else "Needed", if (okS) good else bad)
+        if (!okU) btn(am, "Grant usage access", false) {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+        if (!okS) {
+            am.addView(tx("Run this once on a computer with your phone plugged in and USB debugging on:", 12f, MU).apply { setPadding(0, dp(8), 0, dp(4)) })
+            am.addView(tx("adb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS", 12f, TX, "monospace").apply { setTextIsSelectable(true) })
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            btn(am, "Allow notifications (status icon)", false) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+            }
+        btn(am, "Allow background running (battery)", false) {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+        if (okU && okS) btn(am, if (Store.auto(this)) "Turn automatic mode OFF" else "Turn automatic mode ON", !Store.auto(this)) {
+            val v = !Store.auto(this); Store.setAuto(this, v)
+            if (v) Auto.start(this) else Auto.stop(this)
+            build()
+        }
+
         // ---- payments ----
         val up = card(root)
         up.addView(label("Using UPI or banking apps?"))
         up.addView(tx("Payment apps refuse to run while any screen-access app is on. Pause MA FOCUS before paying, then turn it back on.", 13f, MU))
-        if (on) btn(up, "Pause screen access", false) {
+        if (Store.auto(this)) up.addView(tx("Automatic mode is on: screen access stays off outside Instagram and YouTube.", 13f, TX).apply { setPadding(0, dp(8), 0, 0) })
+        else if (on) btn(up, "Pause screen access", false) {
             ReelService.instance?.disableSelf()
             root.postDelayed({ build() }, 700)
         } else btn(up, "Turn screen access back on") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
