@@ -19,6 +19,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
+import android.widget.Toast
 import kotlin.math.abs
 
 class ReelService : AccessibilityService() {
@@ -41,6 +42,7 @@ class ReelService : AccessibilityService() {
     private val ui = Handler(Looper.getMainLooper())
     private val evalRun = Runnable { evaluate() }
     private val settleRun = Runnable { settle() }
+    private val closeRun = Runnable { performGlobalAction(GLOBAL_ACTION_HOME) }
 
     // Widget is shown for the whole app here; other apps only while reels/shorts are open
     private val always = setOf("com.instagram.android")
@@ -67,6 +69,22 @@ class ReelService : AccessibilityService() {
         "Pause. Is this really how you want to spend your day?",
         "Win this moment. Close the app and don't look back.",
         "Enough for now. Your focus is worth more than this feed."
+    )
+
+    // Medium and Strict mode: blunt, rude, meant to shame you into closing the app
+    private val rude = listOf(
+        "Still scrolling? Bold move for someone with goals.",
+        "Your goals just unfollowed you.",
+        "Wow. Another reel. Truly the best use of your life.",
+        "Nobody ever said 'I wish I'd scrolled more.' Close it.",
+        "Strangers dancing are doing better than you right now. Close the app.",
+        "You're not relaxing, you're avoiding. Close it.",
+        "You blew past your limit. Not a flex. Close the app.",
+        "This is exactly what you said you wouldn't do. Close it.",
+        "Your future self is rolling their eyes. Close the app.",
+        "Same reels, different day. Go do something real.",
+        "The algorithm thanks you for your free time. Close the app.",
+        "Embarrassing. You had one job: stop at your limit."
     )
 
     private val screenOff = object : BroadcastReceiver() {
@@ -167,6 +185,12 @@ class ReelService : AccessibilityService() {
         Store.setCount(this, Store.count(this) + 1)
         show(true)
         refresh()
+        // Strict mode: from the 3rd reminder on, send you to the home screen (closes the reels app)
+        val over = Store.count(this) - Store.limit(this)
+        if (Store.mode(this) == 2 && over >= 3 * Store.interval(this)) {
+            Toast.makeText(this, "Strict mode: closing the app", Toast.LENGTH_LONG).show()
+            ui.removeCallbacks(closeRun); ui.postDelayed(closeRun, 1200)
+        }
     }
 
     // Is the thing that scrolled a reels/shorts pager (and not e.g. a search box)?
@@ -225,15 +249,17 @@ class ReelService : AccessibilityService() {
         val c = Store.count(this); val l = Store.limit(this); val h = Store.health(this)
         var s = "${Store.face(h)}  $c / $l"
         val over = c - l
-        // Every 5th reel past the limit: task 1, task 2, ... last task, then a motivational
-        // message (a different one each loop), then the loop starts again.
-        if (over > 0 && over % 5 == 0) {
-            val n = over / 5
+        // Every N-th reel past the limit (N is set in Settings): task 1, task 2, ... last task,
+        // then a message (kind in Gentle, rude in Medium/Strict; a different one each loop).
+        val iv = Store.interval(this)
+        if (over > 0 && over % iv == 0) {
+            val n = over / iv
             val t = Store.tasks(this)
             val len = t.size + 1
             val pos = (n - 1) % len
+            val pool = if (Store.mode(this) == 0) msgs else rude
             s += if (pos < t.size) "\nTask ${pos + 1}: ${t[pos]}"
-                 else "\n" + msgs[((n - 1) / len) % msgs.size]
+                 else "\n" + pool[((n - 1) / len) % pool.size]
         }
         tv?.apply {
             if (text.toString() != s) {

@@ -21,7 +21,10 @@ object Store {
         if (s.getString("day", "") != today()) s.edit().putString("day", today()).putInt("count", 0).apply()
         return s.getInt("count", 0)
     }
-    fun setCount(c: Context, n: Int) { count(c); p(c).edit().putInt("count", maxOf(0, n)).apply() }
+    fun setCount(c: Context, n: Int) {
+        count(c)
+        p(c).edit().putInt("count", maxOf(0, n)).putInt("dc_${today()}", maxOf(0, n)).apply()
+    }
     fun limit(c: Context) = p(c).getInt("limit", 30)
     fun setLimit(c: Context, n: Int) = p(c).edit().putInt("limit", maxOf(1, n)).apply()
 
@@ -59,4 +62,16 @@ object Store {
     fun setWidgetOn(c: Context, v: Boolean) = p(c).edit().putBoolean("widget", v).apply()
     fun auto(c: Context) = p(c).getBoolean("auto", false)
     fun setAuto(c: Context, v: Boolean) = p(c).edit().putBoolean("auto", v).apply()
+
+    fun interval(c: Context) = p(c).getInt("iv", 5)
+    fun setInterval(c: Context, n: Int) = p(c).edit().putInt("iv", maxOf(1, n)).apply()
+    fun mode(c: Context) = p(c).getInt("mode", 0)          // 0 gentle, 1 medium (rude), 2 strict
+    fun setMode(c: Context, m: Int) = p(c).edit().putInt("mode", m).apply()
+
+    fun dayKey(daysAgo: Int): String {
+        val cal = java.util.Calendar.getInstance(); cal.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
+        return SimpleDateFormat("yyyyMMdd", Locale.US).format(cal.time)
+    }
+    fun countOn(c: Context, day: String) = p(c).getInt("dc_$day", 0)
+    fun timeOn(c: Context, kind: String, pkg: String, day: String) = p(c).getLong("${kind}_${pkg}_$day", 0)
 }
