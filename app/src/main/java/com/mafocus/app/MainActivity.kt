@@ -37,6 +37,8 @@ import java.util.Locale
 class MainActivity : Activity() {
     private var tab = 0
     private var introDone = false
+    private lateinit var sv: ScrollView
+    private var lastTab = -1
     private var calMonth: Calendar = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
     private var selDay = ""
     private var remIdx = 0
@@ -86,13 +88,13 @@ class MainActivity : Activity() {
     }
     private fun btn(p: LinearLayout, s: String, primary: Boolean = true, f: () -> Unit) {
         p.addView(Button(this).apply {
-            text = s; isAllCaps = false; textSize = 14f
+            text = s; isAllCaps = false; textSize = 14f; minHeight = dp(46); maxLines = 2
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(if (primary) Color.WHITE else TX)
             background = round(if (primary) AC else BTN2, 12)
             stateListAnimator = null
             setOnClickListener { f() }
-        }, lp(MP, dp(46)).apply { topMargin = dp(8) })
+        }, lp(MP, WC).apply { topMargin = dp(8) })
     }
     private fun field(h: String, t: Int) = EditText(this).apply {
         hint = h; inputType = t; setTextColor(TX); setHintTextColor(MU); textSize = 15f
@@ -118,13 +120,14 @@ class MainActivity : Activity() {
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         items.forEachIndexed { i, s ->
             r.addView(Button(this).apply {
-                text = s; isAllCaps = false; textSize = 12f
+                text = s; isAllCaps = false; textSize = 12f; maxLines = 2; minWidth = 0; minHeight = 0
+                gravity = Gravity.CENTER; setPadding(dp(4), dp(6), dp(4), dp(6))
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(if (i == sel) Color.WHITE else TX)
                 background = round(if (i == sel) AC else BTN2, 10)
                 stateListAnimator = null
                 setOnClickListener { pick(i) }
-            }, lp(0, dp(42), 1f).apply { if (i > 0) leftMargin = dp(6) })
+            }, lp(0, dp(52), 1f).apply { if (i > 0) leftMargin = dp(6) })
         }
         p.addView(r, lp(MP, WC).apply { topMargin = dp(8) })
     }
@@ -156,12 +159,16 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(30), dp(18), dp(20))
         }
         val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
-        outer.addView(ScrollView(this).apply { addView(root) }, lp(MP, 0, 1f))
+        val keepY = if (::sv.isInitialized && lastTab == tab) sv.scrollY else 0
+        lastTab = tab
+        sv = ScrollView(this).apply { addView(root) }
+        outer.addView(sv, lp(MP, 0, 1f))
         outer.addView(tabBar(), lp(MP, WC))
         setContentView(outer)
 
         header(root)
         when (tab) { 0 -> home(root); 1 -> stats(root); 2 -> tasksPage(root); 3 -> breatherPage(root); else -> settings(root) }
+        sv.post { sv.scrollTo(0, keepY) }
     }
 
     private fun tabBar() = LinearLayout(this).apply {
@@ -334,9 +341,12 @@ class MainActivity : Activity() {
                         setOnClickListener { selDay = key; build() }
                     }
                     cell.addView(tx(d.toString(), 14f, if (sel) Color.WHITE else TX, "sans-serif-medium"))
-                    cell.addView(View(this).apply {
-                        background = if (byDay.containsKey(key)) round(if (sel) Color.WHITE else AC, 3) else null
-                    }, lp(dp(5), dp(5)).apply { topMargin = dp(2) })
+                    val dots = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+                    repeat(minOf(byDay[key]?.size ?: 0, 3)) {
+                        dots.addView(View(this).apply { background = round(if (sel) Color.WHITE else AC, 3) },
+                            lp(dp(5), dp(5)).apply { leftMargin = dp(1); rightMargin = dp(1) })
+                    }
+                    cell.addView(dots, lp(WC, dp(5)).apply { topMargin = dp(2) })
                     rw.addView(cell, lp(0, dp(46), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
                 }
                 d++
@@ -347,16 +357,21 @@ class MainActivity : Activity() {
 
         // --- selected day ---
         val sd = card(root)
-        sd.addView(label(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(dayFmt.parse(selDay) ?: Date())))
         val dayTasks = byDay[selDay].orEmpty()
+        sd.addView(label(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(dayFmt.parse(selDay) ?: Date()) +
+            if (dayTasks.isNotEmpty()) "  ·  ${dayTasks.size}" else ""))
         if (dayTasks.isEmpty()) sd.addView(tx("Nothing planned for this day.", 13f, MU))
         dayTasks.forEach { taskRow(sd, it, all) }
         sd.addView(draftBox("Task for this day", { draft }, { draft = it }), lp(MP, WC).apply { topMargin = dp(12) })
         sd.addView(tx("Start reminding me", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
-        seg(sd, listOf("That day", "1 day before", "3 days", "7 days"), remIdx) { remIdx = it; build() }
+        seg(sd, listOf("Same\nday", "1 day\nbefore", "3 days\nbefore", "7 days\nbefore"), remIdx) { remIdx = it; build() }
         btn(sd, "Add to this day") {
             val v = draft.trim()
-            if (v.isNotEmpty()) { all.add(Task(v, selDay, remVals[remIdx])); Store.saveAllTasks(this, all); draft = ""; build() }
+            if (v.isNotEmpty()) {
+                all.add(Task(v, selDay, remVals[remIdx])); Store.saveAllTasks(this, all); draft = ""
+                Toast.makeText(this, "Added · ${all.count { it.date == selDay }} task(s) on this day", Toast.LENGTH_SHORT).show()
+                build()
+            }
         }
         sd.addView(tx("Reminders for this task appear on the widget only from the start day up to this day.", 11f, MU)
             .apply { setPadding(0, dp(8), 0, 0) })
@@ -573,6 +588,11 @@ class MainActivity : Activity() {
         col.addView(logo, lp(dp(112), dp(112)))
         col.addView(title, lp(WC, WC).apply { topMargin = dp(24) })
         col.addView(tag, lp(WC, WC).apply { topMargin = dp(6) })
+        val quote = tx("Built with zero coding experience\nby a student, for students.", 13f, MU, "serif").apply {
+            typeface = Typeface.create("serif", Typeface.ITALIC); gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.15f); alpha = 0f
+        }
+        col.addView(quote, lp(WC, WC).apply { topMargin = dp(36) })
         fl.addView(col, FrameLayout.LayoutParams(WC, WC, Gravity.CENTER))
         addContentView(fl, ViewGroup.LayoutParams(MP, MP))
         logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(650).setInterpolator(OvershootInterpolator(1.4f)).start()
@@ -583,7 +603,8 @@ class MainActivity : Activity() {
             start()
         }
         tag.animate().alpha(1f).setStartDelay(500).setDuration(400).start()
-        fl.animate().alpha(0f).setStartDelay(1500).setDuration(380)
+        quote.animate().alpha(1f).setStartDelay(900).setDuration(500).start()
+        fl.animate().alpha(0f).setStartDelay(2700).setDuration(380)
             .withEndAction { (fl.parent as? ViewGroup)?.removeView(fl) }.start()
     }
 
