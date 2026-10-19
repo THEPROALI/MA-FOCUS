@@ -2,9 +2,14 @@ package com.mafocus.app
 
 import android.content.Context
 import android.graphics.Color
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** date = "" means every day; otherwise yyyyMMdd. before = start reminding this many days earlier. */
+data class Task(val text: String, val date: String = "", val before: Int = 0)
 
 object Store {
     val APPS = linkedMapOf(
@@ -36,9 +41,37 @@ object Store {
     fun color(h: Int): Int = Color.HSVToColor(floatArrayOf(h * 1.2f, 0.7f, 0.8f))
     fun face(h: Int) = when { h >= 70 -> "🧠"; h >= 40 -> "😵"; h > 0 -> "🤕"; else -> "💀" }
 
-    fun tasks(c: Context): MutableList<String> =
-        (p(c).getString("tasks", "") ?: "").split("\n").filter { it.isNotBlank() }.toMutableList()
-    fun saveTasks(c: Context, t: List<String>) = p(c).edit().putString("tasks", t.joinToString("\n")).apply()
+    fun allTasks(c: Context): MutableList<Task> {
+        val raw = p(c).getString("tasks2", null)
+        if (raw == null)
+            return (p(c).getString("tasks", "") ?: "").split("\n").filter { it.isNotBlank() }.map { Task(it) }.toMutableList()
+        val out = mutableListOf<Task>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(Task(o.getString("t"), o.optString("d", ""), o.optInt("b", 0)))
+            }
+        } catch (_: Exception) {}
+        return out
+    }
+    fun saveAllTasks(c: Context, l: List<Task>) {
+        val a = JSONArray()
+        l.forEach { a.put(JSONObject().put("t", it.text).put("d", it.date).put("b", it.before)) }
+        p(c).edit().putString("tasks2", a.toString()).apply()
+    }
+    fun shiftDay(day: String, delta: Int): String {
+        val f = SimpleDateFormat("yyyyMMdd", Locale.US)
+        val cal = java.util.Calendar.getInstance(); cal.time = f.parse(day) ?: Date()
+        cal.add(java.util.Calendar.DAY_OF_YEAR, delta); return f.format(cal.time)
+    }
+    /** Tasks that should remind me today: every-day tasks + dated tasks inside their reminder window. */
+    fun activeTasks(c: Context): List<Task> {
+        val t = today()
+        return allTasks(c).filter { it.date.isEmpty() || (t <= it.date && t >= shiftDay(it.date, -it.before)) }
+            .sortedWith(compareBy<Task>({ it.date.isEmpty() }, { it.date }))
+    }
+    fun tasks(c: Context): List<String> = activeTasks(c).map { it.text }
 
     // kind: "t" = total time in app, "r" = time spent on reels/shorts
     fun addTime(c: Context, kind: String, pkg: String, ms: Long) {
@@ -74,4 +107,13 @@ object Store {
     }
     fun countOn(c: Context, day: String) = p(c).getInt("dc_$day", 0)
     fun timeOn(c: Context, kind: String, pkg: String, day: String) = p(c).getLong("${kind}_${pkg}_$day", 0)
+
+    fun theme(c: Context) = p(c).getInt("theme", 0)
+    fun setTheme(c: Context, v: Int) = p(c).edit().putInt("theme", v).apply()
+    fun wsize(c: Context) = p(c).getInt("wsize", 1)
+    fun setWsize(c: Context, v: Int) = p(c).edit().putInt("wsize", v).apply()
+    fun wx(c: Context) = p(c).getInt("wx", 1)
+    fun setWx(c: Context, v: Int) = p(c).edit().putInt("wx", v).apply()
+    fun wy(c: Context) = p(c).getInt("wy", 4)
+    fun setWy(c: Context, v: Int) = p(c).edit().putInt("wy", v).apply()
 }

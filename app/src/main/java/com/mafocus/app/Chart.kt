@@ -50,3 +50,27 @@ class BarChart(
         }
     }
 }
+
+/** Small phone-shaped preview showing where the floating widget will sit. */
+class WidgetPreview(
+    c: Context,
+    var px: Int, var py: Int, var psize: Int,
+    private val frame: Int, private val pill: Int, private val txt: Int
+) : View(c) {
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val d = c.resources.displayMetrics.density
+
+    override fun onDraw(cv: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        p.style = Paint.Style.STROKE; p.strokeWidth = 2 * d; p.color = frame
+        cv.drawRoundRect(RectF(2 * d, 2 * d, w - 2 * d, h - 2 * d), 18 * d, 18 * d, p)
+        val pw = w * (0.46f + 0.14f * psize); val ph = pw * 0.28f
+        val m = 8 * d
+        val left = when (px) { 0 -> m + 4 * d; 2 -> w - pw - m - 4 * d; else -> (w - pw) / 2 }
+        val top = (h * 0.88f * py / 100f).coerceIn(m + 4 * d, h - ph - m - 4 * d)
+        p.style = Paint.Style.FILL; p.color = pill
+        cv.drawRoundRect(RectF(left, top, left + pw, top + ph), ph / 2, ph / 2, p)
+        p.color = txt; p.textAlign = Paint.Align.CENTER; p.textSize = ph * 0.45f
+        cv.drawText("12 / 30", left + pw / 2, top + ph * 0.64f, p)
+    }
+}

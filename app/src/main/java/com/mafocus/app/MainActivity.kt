@@ -3,26 +3,54 @@ package com.mafocus.app
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+
+private class Th(
+    val name: String, val bg: String, val card: String, val line: String, val tx: String,
+    val mu: String, val ac: String, val btn2: String, val field: String, val light: Boolean = false
+)
+
+private val THEMES = listOf(
+    Th("Midnight", "#0B0D12", "#141821", "#232938", "#E8EAF0", "#7A8194", "#4C8DFF", "#1C2130", "#0E1118"),
+    Th("AMOLED", "#000000", "#0A0A0A", "#1E1E1E", "#FFFFFF", "#8A8A8A", "#00D69B", "#161616", "#050505"),
+    Th("Light", "#F4F5F9", "#FFFFFF", "#E3E6EE", "#14161F", "#6B7080", "#3B6FE0", "#E9ECF4", "#F4F5F9", true),
+    Th("Forest", "#0C1410", "#13201A", "#1F332A", "#E6F2EA", "#7FA08C", "#3DDC84", "#1A2C23", "#0A110D"),
+    Th("Sunset", "#140D12", "#1F131B", "#36212F", "#F6E9EE", "#A98A98", "#FF7A59", "#2B1A25", "#0F0A0E"),
+    Th("Royal", "#0E0B18", "#181327", "#2A2144", "#ECE8F8", "#8E86AD", "#8B7CF6", "#221B38", "#0A0812")
+)
 
 class MainActivity : Activity() {
     private var tab = 0
+    private var calMonth: Calendar = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
+    private var selDay = ""
+    private var remIdx = 0
+    private val remVals = listOf(0, 1, 3, 7)
+    private var draft = ""
+    private var draft2 = ""
+    private val dayFmt = SimpleDateFormat("yyyyMMdd", Locale.US)
     private val quotes = listOf(
         "Every reel you skip is a minute you give back to your goals.",
         "Discipline is choosing what you want most over what you want now.",
@@ -31,16 +59,20 @@ class MainActivity : Activity() {
         "Boredom is where your best ideas start. Let it happen.",
         "Future you is watching. Make them proud."
     )
-    private val BG = Color.parseColor("#0B0D12")
-    private val CARD = Color.parseColor("#141821")
-    private val LINE = Color.parseColor("#232938")
-    private val TX = Color.parseColor("#E8EAF0")
-    private val MU = Color.parseColor("#7A8194")
-    private val AC = Color.parseColor("#4C8DFF")
+    private var BG = 0; private var CARD = 0; private var LINE = 0; private var TX = 0
+    private var MU = 0; private var AC = 0; private var BTN2 = 0; private var FIELD = 0
+    private var LIGHT = false
     private val GOOD = 0xFF2ECC71.toInt()
     private val BAD = 0xFFE74C3C.toInt()
     private val MP = LinearLayout.LayoutParams.MATCH_PARENT
     private val WC = LinearLayout.LayoutParams.WRAP_CONTENT
+
+    private fun applyTheme() {
+        val t = THEMES[Store.theme(this).coerceIn(0, THEMES.size - 1)]
+        BG = Color.parseColor(t.bg); CARD = Color.parseColor(t.card); LINE = Color.parseColor(t.line)
+        TX = Color.parseColor(t.tx); MU = Color.parseColor(t.mu); AC = Color.parseColor(t.ac)
+        BTN2 = Color.parseColor(t.btn2); FIELD = Color.parseColor(t.field); LIGHT = t.light
+    }
 
     // ---------- helpers ----------
     private fun dp(i: Int) = (i * resources.displayMetrics.density).toInt()
@@ -64,16 +96,25 @@ class MainActivity : Activity() {
             text = s; isAllCaps = false; textSize = 14f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(if (primary) Color.WHITE else TX)
-            background = round(if (primary) AC else Color.parseColor("#1C2130"), 12)
+            background = round(if (primary) AC else BTN2, 12)
             stateListAnimator = null
             setOnClickListener { f() }
         }, lp(MP, dp(46)).apply { topMargin = dp(8) })
     }
     private fun field(h: String, t: Int) = EditText(this).apply {
         hint = h; inputType = t; setTextColor(TX); setHintTextColor(MU); textSize = 15f
-        background = round(Color.parseColor("#0E1118"), 12, LINE)
+        background = round(FIELD, 12, LINE)
         setPadding(dp(14), dp(12), dp(14), dp(12))
     }
+    private fun draftBox(hint: String, get: () -> String, put: (String) -> Unit) =
+        field(hint, InputType.TYPE_CLASS_TEXT).apply {
+            setText(get())
+            addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) { put(s?.toString() ?: "") }
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            })
+        }
     private fun row(p: LinearLayout, a: String, b: String, bc: Int = MU) {
         p.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, dp(6))
@@ -84,10 +125,10 @@ class MainActivity : Activity() {
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         items.forEachIndexed { i, s ->
             r.addView(Button(this).apply {
-                text = s; isAllCaps = false; textSize = 13f
+                text = s; isAllCaps = false; textSize = 12f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(if (i == sel) Color.WHITE else TX)
-                background = round(if (i == sel) AC else Color.parseColor("#1C2130"), 10)
+                background = round(if (i == sel) AC else BTN2, 10)
                 stateListAnimator = null
                 setOnClickListener { pick(i) }
             }, lp(0, dp(42), 1f).apply { if (i > 0) leftMargin = dp(6) })
@@ -96,8 +137,13 @@ class MainActivity : Activity() {
     }
     private fun accessOn() = (Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
         .contains(packageName)
+    private fun go(i: Intent) {
+        try { startActivity(i) } catch (_: Exception) {
+            Toast.makeText(this, "Not available on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
 
-    // ---------- screen skeleton ----------
+    // ---------- skeleton ----------
     override fun onResume() {
         super.onResume()
         if (Store.auto(this) && Auto.hasUsage(this) && Auto.hasSecure(this)) Auto.start(this)
@@ -105,7 +151,13 @@ class MainActivity : Activity() {
     }
 
     private fun build() {
+        applyTheme()
         window.statusBarColor = BG; window.navigationBarColor = CARD
+        var f = window.decorView.systemUiVisibility
+        val lf = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        f = if (LIGHT) f or lf else f and lf.inv()
+        window.decorView.systemUiVisibility = f
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(30), dp(18), dp(20))
         }
@@ -157,7 +209,7 @@ class MainActivity : Activity() {
         } else {
             val a = card(root)
             a.addView(tx("Screen access is off", 15f, BAD, "sans-serif-medium"))
-            btn(a, "Enable screen access") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            btn(a, "Enable screen access") { go(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         }
 
         val ns = card(root)
@@ -230,31 +282,110 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------- TASKS ----------
-    private fun tasksPage(root: LinearLayout) {
-        val t = card(root)
-        t.addView(label("Your tasks"))
-        t.addView(tx("These are shown on the widget when you pass your limit, one after another.", 13f, MU))
-        val tf = field("What should you be doing instead?", InputType.TYPE_CLASS_TEXT)
-        t.addView(tf, lp(MP, WC).apply { topMargin = dp(10) })
-        btn(t, "Add task") {
-            val v = tf.text.toString().trim()
-            if (v.isNotEmpty()) { Store.saveTasks(this, Store.tasks(this) + v); build() }
-        }
-        val tasks = Store.tasks(this)
-        if (tasks.isEmpty()) t.addView(tx("No tasks yet.", 13f, MU).apply { setPadding(0, dp(10), 0, 0) })
-        tasks.forEachIndexed { i, task ->
-            t.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(10), 0, dp(2))
-                addView(tx("${i + 1}.  $task", 15f), lp(0, WC, 1f))
-                addView(tx("Done", 14f, AC, "sans-serif-medium").apply {
-                    setPadding(dp(12), dp(6), 0, dp(6)); setOnClickListener {
-                        val all = Store.tasks(this@MainActivity); all.removeAt(i); Store.saveTasks(this@MainActivity, all); build()
-                    }
-                })
+    // ---------- TASKS + CALENDAR ----------
+    private fun taskRow(p: LinearLayout, t: Task, all: MutableList<Task>) {
+        p.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(2))
+            val col = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(tx(t.text, 15f))
+            if (t.date.isNotEmpty() && t.before > 0) col.addView(tx("reminds from ${t.before} day(s) before", 11f, MU))
+            addView(col, lp(0, WC, 1f))
+            addView(tx("Done", 14f, AC, "sans-serif-medium").apply {
+                setPadding(dp(12), dp(6), 0, dp(6))
+                setOnClickListener { all.remove(t); Store.saveAllTasks(this@MainActivity, all); build() }
             })
+        })
+    }
+
+    private fun tasksPage(root: LinearLayout) {
+        val all = Store.allTasks(this)
+        val todayKey = Store.dayKey(0)
+        if (selDay.isEmpty()) selDay = todayKey
+        val byDay = all.filter { it.date.isNotEmpty() }.groupBy { it.date }
+
+        // --- calendar ---
+        val cc = card(root)
+        val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        nav.addView(tx("‹", 26f, AC, "sans-serif-medium").apply {
+            setPadding(dp(14), 0, dp(14), 0); setOnClickListener { calMonth.add(Calendar.MONTH, -1); build() }
+        })
+        nav.addView(tx(SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(calMonth.time), 16f, TX, "sans-serif-medium")
+            .apply { gravity = Gravity.CENTER }, lp(0, WC, 1f))
+        nav.addView(tx("›", 26f, AC, "sans-serif-medium").apply {
+            setPadding(dp(14), 0, dp(14), 0); setOnClickListener { calMonth.add(Calendar.MONTH, 1); build() }
+        })
+        cc.addView(nav)
+        val wk = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(4)) }
+        listOf("M", "T", "W", "T", "F", "S", "S").forEach {
+            wk.addView(tx(it, 11f, MU, "sans-serif-medium").apply { gravity = Gravity.CENTER }, lp(0, WC, 1f))
         }
+        cc.addView(wk)
+        val first = calMonth.clone() as Calendar
+        first.set(Calendar.DAY_OF_MONTH, 1)
+        val offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7
+        val dim = first.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val prefix = SimpleDateFormat("yyyyMM", Locale.US).format(first.time)
+        var d = 1 - offset
+        while (d <= dim) {
+            val rw = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (col in 0 until 7) {
+                if (d < 1 || d > dim) rw.addView(View(this), lp(0, dp(46), 1f))
+                else {
+                    val key = prefix + "%02d".format(d)
+                    val sel = key == selDay; val isToday = key == todayKey
+                    val cell = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                        background = when { sel -> round(AC, 10); isToday -> round(Color.TRANSPARENT, 10, AC); else -> null }
+                        setOnClickListener { selDay = key; build() }
+                    }
+                    cell.addView(tx(d.toString(), 14f, if (sel) Color.WHITE else TX, "sans-serif-medium"))
+                    cell.addView(View(this).apply {
+                        background = if (byDay.containsKey(key)) round(if (sel) Color.WHITE else AC, 3) else null
+                    }, lp(dp(5), dp(5)).apply { topMargin = dp(2) })
+                    rw.addView(cell, lp(0, dp(46), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                }
+                d++
+            }
+            cc.addView(rw)
+        }
+        cc.addView(tx("Dots mark days with tasks.", 11f, MU).apply { setPadding(0, dp(8), 0, 0) })
+
+        // --- selected day ---
+        val sd = card(root)
+        sd.addView(label(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(dayFmt.parse(selDay) ?: Date())))
+        val dayTasks = byDay[selDay].orEmpty()
+        if (dayTasks.isEmpty()) sd.addView(tx("Nothing planned for this day.", 13f, MU))
+        dayTasks.forEach { taskRow(sd, it, all) }
+        sd.addView(draftBox("Task for this day", { draft }, { draft = it }), lp(MP, WC).apply { topMargin = dp(12) })
+        sd.addView(tx("Start reminding me", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
+        seg(sd, listOf("That day", "1 day before", "3 days", "7 days"), remIdx) { remIdx = it; build() }
+        btn(sd, "Add to this day") {
+            val v = draft.trim()
+            if (v.isNotEmpty()) { all.add(Task(v, selDay, remVals[remIdx])); Store.saveAllTasks(this, all); draft = ""; build() }
+        }
+        sd.addView(tx("Reminders for this task appear on the widget only from the start day up to this day.", 11f, MU)
+            .apply { setPadding(0, dp(8), 0, 0) })
+
+        // --- overdue ---
+        val overdue = all.filter { it.date.isNotEmpty() && it.date < todayKey }
+        if (overdue.isNotEmpty()) {
+            val od = card(root)
+            od.addView(label("Overdue"))
+            overdue.forEach { taskRow(od, it, all) }
+        }
+
+        // --- every day ---
+        val ed = card(root)
+        ed.addView(label("Every day"))
+        ed.addView(tx("These remind you every day.", 13f, MU))
+        all.filter { it.date.isEmpty() }.forEach { taskRow(ed, it, all) }
+        ed.addView(draftBox("Add an every-day task", { draft2 }, { draft2 = it }), lp(MP, WC).apply { topMargin = dp(10) })
+        btn(ed, "Add every-day task", false) {
+            val v = draft2.trim()
+            if (v.isNotEmpty()) { all.add(Task(v)); Store.saveAllTasks(this, all); draft2 = ""; build() }
+        }
+
         val q = card(root)
         q.addView(label("Motivation"))
         q.addView(tx("\u201C${quotes.random()}\u201D", 17f, TX, "serif").apply {
@@ -265,6 +396,23 @@ class MainActivity : Activity() {
     // ---------- SETTINGS ----------
     private fun settings(root: LinearLayout) {
         val lim = Store.limit(this); val iv = Store.interval(this); val mode = Store.mode(this)
+
+        // appearance
+        val th = card(root)
+        th.addView(label("Theme"))
+        val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val tr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val cur = Store.theme(this)
+        THEMES.forEachIndexed { i, t ->
+            tr.addView(TextView(this).apply {
+                text = (if (i == cur) "✓  " else "") + t.name; textSize = 13f
+                setTextColor(Color.parseColor(t.tx)); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = round(Color.parseColor(t.card), 12, Color.parseColor(if (i == cur) t.ac else t.line))
+                setOnClickListener { Store.setTheme(this@MainActivity, i); build() }
+            }, lp(WC, WC).apply { rightMargin = dp(8) })
+        }
+        hs.addView(tr); th.addView(hs)
 
         val l = card(root)
         l.addView(label("Daily reel limit"))
@@ -283,17 +431,38 @@ class MainActivity : Activity() {
         seg(r, listOf("Gentle", "Medium", "Strict"), mode) { Store.setMode(this, it); build() }
         r.addView(tx(listOf(
             "Gentle: your tasks one by one, then kind messages asking you to close the app.",
-            "Medium: your tasks one by one, then blunt, rude messages to shame you into closing the app.",
-            "Strict: same rude messages, and from the 3rd reminder on the app is closed for you (sent to the home screen), and again on every reel after that today."
+            "Medium: your tasks one by one, then rude, sarcastic messages.",
+            "Strict: your tasks, then brutal roasts. From the 3rd reminder on, the app is closed for you (sent to the home screen), and again on every reel after that today."
         )[mode], 12f, MU).apply { setPadding(0, dp(8), 0, 0) })
 
+        // widget
         val w = card(root)
         w.addView(label("Floating widget"))
         w.addView(tx(if (Store.widgetOn(this)) "Shown while Instagram or Shorts are open. Tap it to open MA FOCUS." else "Hidden. Reels are still counted.", 13f, MU))
         btn(w, if (Store.widgetOn(this)) "Turn widget off" else "Turn widget on", !Store.widgetOn(this)) {
             Store.setWidgetOn(this, !Store.widgetOn(this)); build()
         }
+        w.addView(tx("Size", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        seg(w, listOf("Small", "Medium", "Large"), Store.wsize(this)) { Store.setWsize(this, it); build() }
+        w.addView(tx("Horizontal position", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        seg(w, listOf("Left", "Center", "Right"), Store.wx(this)) { Store.setWx(this, it); build() }
+        w.addView(tx("Vertical position", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val pv = WidgetPreview(this, Store.wx(this), Store.wy(this), Store.wsize(this), LINE, Store.color(80), Color.WHITE)
+        val sb = SeekBar(this).apply {
+            max = 100; progress = Store.wy(this@MainActivity)
+            progressTintList = ColorStateList.valueOf(AC); thumbTintList = ColorStateList.valueOf(AC)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, v: Int, u: Boolean) {
+                    Store.setWy(this@MainActivity, v); pv.py = v; pv.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+        w.addView(sb, lp(MP, WC))
+        w.addView(pv, lp(dp(120), dp(190)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(10) })
 
+        // automatic mode
         val am = card(root)
         am.addView(label("Automatic mode"))
         am.addView(tx("Turns screen access on only while Instagram or YouTube is open and off everywhere else, so UPI apps work normally.", 13f, MU))
@@ -302,7 +471,7 @@ class MainActivity : Activity() {
         row(am, "1. Usage access", if (okU) "Granted" else "Needed", if (okU) GOOD else BAD)
         row(am, "2. Secure settings (one-time, computer)", if (okS) "Granted" else "Needed", if (okS) GOOD else BAD)
         if (!okU) btn(am, "Grant usage access", false) {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")))
+            go(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")))
         }
         if (!okS) {
             am.addView(tx("Run this once on a computer with your phone plugged in and USB debugging on:", 12f, MU).apply { setPadding(0, dp(8), 0, dp(4)) })
@@ -313,9 +482,7 @@ class MainActivity : Activity() {
             btn(am, "Allow notifications (status icon)", false) {
                 requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
             }
-        btn(am, "Allow background running (battery)", false) {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+        btn(am, "Allow background running (battery)", false) { go(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         if (okU && okS) btn(am, if (Store.auto(this)) "Turn automatic mode OFF" else "Turn automatic mode ON", !Store.auto(this)) {
             val v = !Store.auto(this); Store.setAuto(this, v)
             if (v) Auto.start(this) else Auto.stop(this)
@@ -329,7 +496,7 @@ class MainActivity : Activity() {
         else if (accessOn()) btn(up, "Pause screen access", false) {
             ReelService.instance?.disableSelf()
             root.postDelayed({ build() }, 700)
-        } else btn(up, "Turn screen access back on") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        } else btn(up, "Turn screen access back on") { go(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
 
         val d = card(root)
         d.addView(label("Troubleshooting"))
@@ -337,6 +504,7 @@ class MainActivity : Activity() {
             Store.setCountAll(this, !Store.countAll(this)); build()
         }
         d.addView(tx("Turn on if reels aren't counted. Last event: ${Store.dbg(this)}", 11f, MU).apply { setPadding(0, dp(10), 0, 0) })
+        d.addView(tx("Works on Android 8.0 and newer (phones and tablets). Install the same APK on each device and enable screen access there.", 11f, MU).apply { setPadding(0, dp(10), 0, 0) })
         d.addView(tx("Play Protect warning? Tap More details, then Install anyway. If it keeps blocking the app: Play Store, profile icon, Play Protect, settings, turn off Scan apps with Play Protect.", 11f, MU).apply { setPadding(0, dp(10), 0, 0) })
     }
 }

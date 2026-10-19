@@ -71,20 +71,38 @@ class ReelService : AccessibilityService() {
         "Enough for now. Your focus is worth more than this feed."
     )
 
-    // Medium and Strict mode: blunt, rude, meant to shame you into closing the app
+    // Medium mode: rude and sarcastic
     private val rude = listOf(
         "Still scrolling? Bold move for someone with goals.",
         "Your goals just unfollowed you.",
         "Wow. Another reel. Truly the best use of your life.",
         "Nobody ever said 'I wish I'd scrolled more.' Close it.",
-        "Strangers dancing are doing better than you right now. Close the app.",
         "You're not relaxing, you're avoiding. Close it.",
         "You blew past your limit. Not a flex. Close the app.",
         "This is exactly what you said you wouldn't do. Close it.",
         "Your future self is rolling their eyes. Close the app.",
         "Same reels, different day. Go do something real.",
-        "The algorithm thanks you for your free time. Close the app.",
-        "Embarrassing. You had one job: stop at your limit."
+        "The algorithm thanks you for your free time.",
+        "You had one job: stop at your limit. One.",
+        "Impressive dedication to doing absolutely nothing."
+    )
+
+    // Strict mode: brutal roasts
+    private val brutal = listOf(
+        "Your thumb has had a more productive day than you have.",
+        "Your brain cells just filed a missing-person report.",
+        "You've scrolled more today than you've worked. Commitment to nothing, truly inspiring.",
+        "Your ancestors survived plagues so you could watch strangers lip-sync. Proud of you.",
+        "That guy on screen has 3 million followers. You have a task list you keep ignoring.",
+        "'Just five minutes.' You said it like it was a promise you'd ever keep.",
+        "Somewhere there's a version of you who closed this app 20 reels ago and is winning.",
+        "This isn't unwinding. It's rotting with extra steps.",
+        "Even your phone battery is embarrassed for you.",
+        "The algorithm knows you better than you know your own goals. Sit with that.",
+        "Plot twist: nobody is coming to do your tasks for you. Put the phone down.",
+        "Your screen-time report needs a therapist after reading what you did today.",
+        "You outscrolled your own willpower. It didn't even put up a fight.",
+        "Your thumb is getting more exercise than the rest of you."
     )
 
     private val screenOff = object : BroadcastReceiver() {
@@ -92,6 +110,23 @@ class ReelService : AccessibilityService() {
     }
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
         if (k == "widget") ui.post { if (Store.widgetOn(this)) evaluate() else show(false) }
+        else if (k == "wsize" || k == "wx" || k == "wy") ui.post { applyLayout() }
+    }
+
+    // widget size and position come from Settings
+    private fun applyLayout() {
+        val t = tv ?: return
+        if (!::lp.isInitialized) return
+        val sz = floatArrayOf(11f, 14f, 18f)[Store.wsize(this).coerceIn(0, 2)]
+        val k = sz / 14f
+        t.textSize = sz
+        t.setPadding((40 * k).toInt(), (16 * k).toInt(), (40 * k).toInt(), (16 * k).toInt())
+        val dm = resources.displayMetrics
+        val hz = when (Store.wx(this)) { 0 -> Gravity.START; 2 -> Gravity.END; else -> Gravity.CENTER_HORIZONTAL }
+        lp.gravity = Gravity.TOP or hz
+        lp.x = if (Store.wx(this) == 1) 0 else (12 * dm.density).toInt()
+        lp.y = (dm.heightPixels * 0.88f * Store.wy(this) / 100f).toInt()
+        if (attached) try { wm?.updateViewLayout(t, lp) } catch (_: Exception) {}
     }
 
     override fun onServiceConnected() {
@@ -110,6 +145,7 @@ class ReelService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 90 }
+        applyLayout()
         registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
         Store.prefs(this).registerOnSharedPreferenceChangeListener(prefListener)
         ui.postDelayed(evalRun, 300)   // show the widget straight away if Instagram is already open
@@ -257,7 +293,7 @@ class ReelService : AccessibilityService() {
             val t = Store.tasks(this)
             val len = t.size + 1
             val pos = (n - 1) % len
-            val pool = if (Store.mode(this) == 0) msgs else rude
+            val pool = when (Store.mode(this)) { 0 -> msgs; 1 -> rude; else -> brutal }
             s += if (pos < t.size) "\nTask ${pos + 1}: ${t[pos]}"
                  else "\n" + pool[((n - 1) / len) % pool.size]
         }
