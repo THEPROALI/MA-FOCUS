@@ -116,4 +116,25 @@ object Store {
     fun setWx(c: Context, v: Int) = p(c).edit().putInt("wx", v).apply()
     fun wy(c: Context) = p(c).getInt("wy", 4)
     fun setWy(c: Context, v: Int) = p(c).edit().putInt("wy", v).apply()
+
+    const val DEFAULT_MSG = "Take a breath. Do you really need to open {app} right now?"
+    fun breatherOn(c: Context) = p(c).getBoolean("bon", false)
+    fun setBreatherOn(c: Context, v: Boolean) = p(c).edit().putBoolean("bon", v).apply()
+    fun bSecs(c: Context) = p(c).getInt("bsecs", 10)
+    fun setBSecs(c: Context, n: Int) = p(c).edit().putInt("bsecs", n.coerceIn(3, 120)).apply()
+    fun bMsg(c: Context) = p(c).getString("bmsg", DEFAULT_MSG) ?: DEFAULT_MSG
+    fun setBMsg(c: Context, m: String) = p(c).edit().putString("bmsg", m).apply()
+    fun bFont(c: Context) = p(c).getInt("bfont", 0)
+    fun setBFont(c: Context, v: Int) = p(c).edit().putInt("bfont", v).apply()
+    fun bTheme(c: Context) = p(c).getInt("btheme", 0)
+    fun setBTheme(c: Context, v: Int) = p(c).edit().putInt("btheme", v).apply()
+    fun bArt(c: Context) = p(c).getInt("bart", 0)
+    fun setBArt(c: Context, v: Int) = p(c).edit().putInt("bart", v).apply()
+    fun bPass(c: Context) = p(c).getInt("bpass", 5)
+    fun setBPass(c: Context, v: Int) = p(c).edit().putInt("bpass", v).apply()
+    fun breatherApps(c: Context): Set<String> {
+        val s = p(c).getString("bapps", null) ?: return APPS.keys.toSet()
+        return s.split(",").filter { it.isNotBlank() }.toSet()
+    }
+    fun setBreatherApps(c: Context, set: Set<String>) = p(c).edit().putString("bapps", set.joinToString(",")).apply()
 }

@@ -1,6 +1,12 @@
 package com.mafocus.app
 
+import android.animation.ValueAnimator
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.view.ViewGroup
+import android.view.animation.OvershootInterpolator
+import android.widget.FrameLayout
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -28,22 +34,9 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private class Th(
-    val name: String, val bg: String, val card: String, val line: String, val tx: String,
-    val mu: String, val ac: String, val btn2: String, val field: String, val light: Boolean = false
-)
-
-private val THEMES = listOf(
-    Th("Midnight", "#0B0D12", "#141821", "#232938", "#E8EAF0", "#7A8194", "#4C8DFF", "#1C2130", "#0E1118"),
-    Th("AMOLED", "#000000", "#0A0A0A", "#1E1E1E", "#FFFFFF", "#8A8A8A", "#00D69B", "#161616", "#050505"),
-    Th("Light", "#F4F5F9", "#FFFFFF", "#E3E6EE", "#14161F", "#6B7080", "#3B6FE0", "#E9ECF4", "#F4F5F9", true),
-    Th("Forest", "#0C1410", "#13201A", "#1F332A", "#E6F2EA", "#7FA08C", "#3DDC84", "#1A2C23", "#0A110D"),
-    Th("Sunset", "#140D12", "#1F131B", "#36212F", "#F6E9EE", "#A98A98", "#FF7A59", "#2B1A25", "#0F0A0E"),
-    Th("Royal", "#0E0B18", "#181327", "#2A2144", "#ECE8F8", "#8E86AD", "#8B7CF6", "#221B38", "#0A0812")
-)
-
 class MainActivity : Activity() {
     private var tab = 0
+    private var introDone = false
     private var calMonth: Calendar = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
     private var selDay = ""
     private var remIdx = 0
@@ -148,6 +141,7 @@ class MainActivity : Activity() {
         super.onResume()
         if (Store.auto(this) && Auto.hasUsage(this) && Auto.hasSecure(this)) Auto.start(this)
         build()
+        if (!introDone) { introDone = true; playIntro() }
     }
 
     private fun build() {
@@ -167,14 +161,14 @@ class MainActivity : Activity() {
         setContentView(outer)
 
         header(root)
-        when (tab) { 0 -> home(root); 1 -> stats(root); 2 -> tasksPage(root); else -> settings(root) }
+        when (tab) { 0 -> home(root); 1 -> stats(root); 2 -> tasksPage(root); 3 -> breatherPage(root); else -> settings(root) }
     }
 
     private fun tabBar() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; setBackgroundColor(CARD)
-        listOf("Home", "Stats", "Tasks", "Settings").forEachIndexed { i, n ->
+        listOf("Home", "Stats", "Tasks", "Breather", "Settings").forEachIndexed { i, n ->
             addView(TextView(this@MainActivity).apply {
-                text = n.uppercase(); textSize = 11f; letterSpacing = 0.1f; gravity = Gravity.CENTER
+                text = n.uppercase(); textSize = 10f; letterSpacing = 0.05f; gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(if (i == tab) AC else MU)
                 setPadding(0, dp(16), 0, dp(16))
@@ -393,6 +387,206 @@ class MainActivity : Activity() {
         })
     }
 
+    // ---------- BREATHER ----------
+    private fun chips(p: LinearLayout, n: Int, make: (Int, TextView) -> Unit, pick: (Int) -> Unit) {
+        val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (i in 0 until n) {
+            val t = TextView(this).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); setOnClickListener { pick(i) } }
+            make(i, t)
+            r.addView(t, lp(WC, WC).apply { rightMargin = dp(8) })
+        }
+        hs.addView(r); p.addView(hs, lp(MP, WC).apply { topMargin = dp(8) })
+    }
+
+    private fun breatherPage(root: LinearLayout) {
+        val on = Store.breatherOn(this)
+        val a = card(root)
+        a.addView(label("Breather mode"))
+        a.addView(tx("A calm pause screen with a countdown appears before the apps you choose open. When the timer ends you can continue, or go back.", 13f, MU))
+        btn(a, if (on) "Turn breather OFF" else "Turn breather ON", !on) { Store.setBreatherOn(this, !on); build() }
+        btn(a, "Preview full screen", false) { openBreatherPreview() }
+        if (on && !accessOn() && !Store.auto(this))
+            a.addView(tx("Screen access is off, so the pause can't appear yet.", 12f, BAD).apply { setPadding(0, dp(8), 0, 0) })
+
+        val ap = card(root)
+        ap.addView(label("Apps"))
+        val n = Store.breatherApps(this).size
+        ap.addView(tx("$n app(s) will show the pause before opening.", 13f, MU))
+        btn(ap, "Choose apps", false) { chooseApps() }
+
+        val m = card(root)
+        m.addView(label("Your message"))
+        val cur = Store.bMsg(this)
+        val mf = field("Message", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
+            minLines = 3; gravity = Gravity.TOP or Gravity.START; setText(cur)
+        }
+        m.addView(mf)
+        m.addView(tx("Type {app} to show the app's name.", 12f, MU).apply { setPadding(0, dp(6), 0, 0) })
+        btn(m, "Save message") { Store.setBMsg(this, mf.text.toString().ifBlank { Store.DEFAULT_MSG }); build() }
+        btn(m, "Reset to default", false) { Store.setBMsg(this, Store.DEFAULT_MSG); build() }
+
+        val t = card(root)
+        t.addView(label("Timer"))
+        t.addView(tx("Pause length in seconds:", 13f, MU))
+        val secs = Store.bSecs(this)
+        val sf = field("10", InputType.TYPE_CLASS_NUMBER).apply { setText(secs.toString()) }
+        t.addView(sf, lp(MP, WC).apply { topMargin = dp(8) })
+        btn(t, "Save pause length") { Store.setBSecs(this, sf.text.toString().toIntOrNull() ?: 10); build() }
+        t.addView(tx("After I continue, don't pause that app again for:", 13f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val passVals = listOf(1, 5, 15, 30)
+        seg(t, listOf("1 min", "5 min", "15 min", "30 min"), passVals.indexOf(Store.bPass(this)).coerceAtLeast(0)) {
+            Store.setBPass(this, passVals[it]); build()
+        }
+
+        val lk = card(root)
+        lk.addView(label("Look"))
+        lk.addView(tx("Font", 12f, MU))
+        val cf = Store.bFont(this)
+        chips(lk, Fonts.names.size, { i, tv ->
+            tv.text = Fonts.names[i]; tv.textSize = 14f; tv.typeface = Fonts.tf(i)
+            tv.setTextColor(if (i == cf) Color.WHITE else TX); tv.background = round(if (i == cf) AC else BTN2, 12)
+        }) { Store.setBFont(this, it); build() }
+        lk.addView(tx("Theme", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val ct = Store.bTheme(this)
+        chips(lk, THEMES.size, { i, tv ->
+            val th = THEMES[i]
+            tv.text = (if (i == ct) "✓  " else "") + th.name; tv.textSize = 13f
+            tv.setTextColor(Color.parseColor(th.tx)); tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            tv.background = round(Color.parseColor(th.card), 12, Color.parseColor(if (i == ct) th.ac else th.line))
+        }) { Store.setBTheme(this, it); build() }
+        lk.addView(tx("Picture", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val art = Store.bArt(this)
+        seg(lk, listOf("Breathe", "Sunrise", "Night", "My photo"), art) { Store.setBArt(this, it); build() }
+        if (art == 3) btn(lk, "Choose photo", false) {
+            try {
+                startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), 77)
+            } catch (_: Exception) { Toast.makeText(this, "Not available on this device", Toast.LENGTH_SHORT).show() }
+        }
+        btn(lk, "Preview full screen") { openBreatherPreview() }
+    }
+
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        super.onActivityResult(req, res, data)
+        if (req != 77 || res != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
+            var s = 1
+            while (o.outWidth / s > 1200) s *= 2
+            val bmp = contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = s })
+            }
+            if (bmp != null) java.io.FileOutputStream(java.io.File(filesDir, "breather.jpg")).use {
+                bmp.compress(Bitmap.CompressFormat.JPEG, 88, it)
+            }
+            Store.setBArt(this, 3); build()
+        } catch (_: Exception) { Toast.makeText(this, "Couldn't use that photo", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun chooseApps() {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val apps = pm.queryIntentActivities(intent, 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .filter { it.first != packageName }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+        val sel = Store.breatherApps(this).toMutableSet()
+        val checked = BooleanArray(apps.size) { sel.contains(apps[it].first) }
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Pause before opening")
+            .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, i, on ->
+                if (on) sel.add(apps[i].first) else sel.remove(apps[i].first)
+            }
+            .setPositiveButton("Save") { _, _ -> Store.setBreatherApps(this, sel); build() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun openBreatherPreview() {
+        val dlg = android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar_Fullscreen)
+        val v = BreatherView(this, "Instagram")
+        v.onContinue = { dlg.dismiss() }; v.onLeave = { dlg.dismiss() }
+        dlg.setContentView(v); dlg.show(); v.start()
+    }
+
+    // Full-screen live preview of the real widget while you change its size and position
+    private fun openWidgetPreview() {
+        val dlg = android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar_Fullscreen)
+        val frame = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0A0A0A")) }
+        frame.addView(tx("Reels preview", 14f, Color.parseColor("#555555")), FrameLayout.LayoutParams(WC, WC, Gravity.CENTER))
+        val pill = TextView(this).apply {
+            text = "🧠  12 / 30"; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            background = GradientDrawable().apply { cornerRadius = 60f; setColor(Store.color(80)) }
+        }
+        frame.addView(pill, FrameLayout.LayoutParams(WC, WC))
+        fun layoutPill() {
+            val sz = floatArrayOf(11f, 14f, 18f)[Store.wsize(this).coerceIn(0, 2)]; val k = sz / 14f
+            pill.textSize = sz
+            pill.setPadding((40 * k).toInt(), (16 * k).toInt(), (40 * k).toInt(), (16 * k).toInt())
+            val x = Store.wx(this)
+            val l = pill.layoutParams as FrameLayout.LayoutParams
+            l.gravity = Gravity.TOP or (when (x) { 0 -> Gravity.START; 2 -> Gravity.END; else -> Gravity.CENTER_HORIZONTAL })
+            l.leftMargin = if (x == 0) dp(12) else 0; l.rightMargin = if (x == 2) dp(12) else 0
+            l.topMargin = (frame.height * 0.88f * Store.wy(this) / 100f).toInt()
+            pill.layoutParams = l
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; background = round(CARD, 20, LINE)
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+        fun fill() {
+            panel.removeAllViews()
+            panel.addView(tx("Size", 12f, MU))
+            seg(panel, listOf("Small", "Medium", "Large"), Store.wsize(this)) { Store.setWsize(this, it); fill(); layoutPill() }
+            panel.addView(tx("Horizontal position", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
+            seg(panel, listOf("Left", "Center", "Right"), Store.wx(this)) { Store.setWx(this, it); fill(); layoutPill() }
+            panel.addView(tx("Vertical position", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
+            panel.addView(SeekBar(this).apply {
+                max = 100; progress = Store.wy(this@MainActivity)
+                progressTintList = ColorStateList.valueOf(AC); thumbTintList = ColorStateList.valueOf(AC)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(s: SeekBar?, v: Int, u: Boolean) { Store.setWy(this@MainActivity, v); layoutPill() }
+                    override fun onStartTrackingTouch(s: SeekBar?) {}
+                    override fun onStopTrackingTouch(s: SeekBar?) {}
+                })
+            }, lp(MP, WC))
+            btn(panel, "Done") { dlg.dismiss() }
+        }
+        fill()
+        frame.addView(panel, FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM).apply { setMargins(dp(12), 0, dp(12), dp(12)) })
+        dlg.setContentView(frame); dlg.show()
+        frame.post { layoutPill() }
+    }
+
+    // ---------- opening animation ----------
+    private fun playIntro() {
+        val fl = FrameLayout(this).apply { setBackgroundColor(BG); isClickable = true }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher_foreground)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF7C6CF0.toInt(), 0xFF2A1B66.toInt())).apply { cornerRadius = dp(28).toFloat() }
+            alpha = 0f; scaleX = 0.4f; scaleY = 0.4f
+        }
+        val title = tx("MA FOCUS", 28f, TX, "sans-serif-black").apply { letterSpacing = 0.6f; alpha = 0f }
+        val tag = tx("TAKE YOUR ATTENTION BACK", 11f, MU, "sans-serif-medium").apply { letterSpacing = 0.2f; alpha = 0f }
+        col.addView(logo, lp(dp(112), dp(112)))
+        col.addView(title, lp(WC, WC).apply { topMargin = dp(24) })
+        col.addView(tag, lp(WC, WC).apply { topMargin = dp(6) })
+        fl.addView(col, FrameLayout.LayoutParams(WC, WC, Gravity.CENTER))
+        addContentView(fl, ViewGroup.LayoutParams(MP, MP))
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(650).setInterpolator(OvershootInterpolator(1.4f)).start()
+        title.animate().alpha(1f).setStartDelay(250).setDuration(450).start()
+        ValueAnimator.ofFloat(0.6f, 0.16f).apply {
+            duration = 800; startDelay = 250
+            addUpdateListener { title.letterSpacing = it.animatedValue as Float }
+            start()
+        }
+        tag.animate().alpha(1f).setStartDelay(500).setDuration(400).start()
+        fl.animate().alpha(0f).setStartDelay(1500).setDuration(380)
+            .withEndAction { (fl.parent as? ViewGroup)?.removeView(fl) }.start()
+    }
+
     // ---------- SETTINGS ----------
     private fun settings(root: LinearLayout) {
         val lim = Store.limit(this); val iv = Store.interval(this); val mode = Store.mode(this)
@@ -442,25 +636,7 @@ class MainActivity : Activity() {
         btn(w, if (Store.widgetOn(this)) "Turn widget off" else "Turn widget on", !Store.widgetOn(this)) {
             Store.setWidgetOn(this, !Store.widgetOn(this)); build()
         }
-        w.addView(tx("Size", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
-        seg(w, listOf("Small", "Medium", "Large"), Store.wsize(this)) { Store.setWsize(this, it); build() }
-        w.addView(tx("Horizontal position", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
-        seg(w, listOf("Left", "Center", "Right"), Store.wx(this)) { Store.setWx(this, it); build() }
-        w.addView(tx("Vertical position", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
-        val pv = WidgetPreview(this, Store.wx(this), Store.wy(this), Store.wsize(this), LINE, Store.color(80), Color.WHITE)
-        val sb = SeekBar(this).apply {
-            max = 100; progress = Store.wy(this@MainActivity)
-            progressTintList = ColorStateList.valueOf(AC); thumbTintList = ColorStateList.valueOf(AC)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, v: Int, u: Boolean) {
-                    Store.setWy(this@MainActivity, v); pv.py = v; pv.invalidate()
-                }
-                override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {}
-            })
-        }
-        w.addView(sb, lp(MP, WC))
-        w.addView(pv, lp(dp(120), dp(190)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(10) })
+        btn(w, "Customize size & position (live preview)", false) { openWidgetPreview() }
 
         // automatic mode
         val am = card(root)

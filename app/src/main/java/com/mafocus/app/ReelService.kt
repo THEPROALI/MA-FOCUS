@@ -43,6 +43,10 @@ class ReelService : AccessibilityService() {
     private val evalRun = Runnable { evaluate() }
     private val settleRun = Runnable { settle() }
     private val closeRun = Runnable { performGlobalAction(GLOBAL_ACTION_HOME) }
+    private var bView: BreatherView? = null
+    private var bAttached = false
+    private var bPkg = ""
+    private val passUntil = HashMap<String, Long>()
 
     // Widget is shown for the whole app here; other apps only while reels/shorts are open
     private val always = setOf("com.instagram.android")
@@ -106,7 +110,7 @@ class ReelService : AccessibilityService() {
     )
 
     private val screenOff = object : BroadcastReceiver() {
-        override fun onReceive(c: Context?, i: Intent?) { closeSession(); show(false) }
+        override fun onReceive(c: Context?, i: Intent?) { closeSession(); show(false); hideBreather() }
     }
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
         if (k == "widget") ui.post { if (Store.widgetOn(this)) evaluate() else show(false) }
@@ -162,11 +166,39 @@ class ReelService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (isNoise(pkg)) return
+                if (pkg != packageName) { if (bAttached && pkg != bPkg) hideBreather() else maybeBreather(pkg) }
                 ui.removeCallbacks(evalRun)
                 ui.postDelayed(evalRun, 400)
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (Store.APPS.containsKey(pkg)) onScroll(pkg, e)
         }
+    }
+
+    // Breather mode: a full-screen pause with a countdown before the chosen apps open
+    private fun maybeBreather(pkg: String) {
+        if (bAttached || pkg == packageName || isNoise(pkg)) return
+        if (!Store.breatherOn(this) || pkg !in Store.breatherApps(this)) return
+        if ((passUntil[pkg] ?: 0L) > SystemClock.elapsedRealtime()) return
+        val name = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+                   catch (_: Exception) { "this app" }
+        val v = BreatherView(this, name)
+        v.onContinue = {
+            passUntil[pkg] = SystemClock.elapsedRealtime() + Store.bPass(this) * 60_000L
+            hideBreather()
+        }
+        v.onLeave = { hideBreather(); performGlobalAction(GLOBAL_ACTION_HOME) }
+        val p2 = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        )
+        try { wm?.addView(v, p2); bView = v; bAttached = true; bPkg = pkg; v.start() } catch (_: Exception) {}
+    }
+
+    private fun hideBreather() {
+        bView?.let { try { wm?.removeView(it) } catch (_: Exception) {} }
+        bView = null; bAttached = false; bPkg = ""
     }
 
     private fun isNoise(p: String) =
@@ -175,6 +207,7 @@ class ReelService : AccessibilityService() {
     private fun evaluate() {
         val p = rootInActiveWindow?.packageName?.toString() ?: return
         if (isNoise(p)) return
+        if (p != packageName) { if (bAttached && p != bPkg) hideBreather() else maybeBreather(p) }
         if (Store.APPS.containsKey(p)) {
             if (fgPkg != p) { closeSession(); openSession(p); show(p in always) }
             else if (p in always) show(true)
@@ -309,7 +342,7 @@ class ReelService : AccessibilityService() {
     override fun onDestroy() {
         if (instance === this) instance = null
         ui.removeCallbacks(evalRun); ui.removeCallbacks(settleRun)
-        closeSession(); attach(false)
+        hideBreather(); closeSession(); attach(false)
         try { unregisterReceiver(screenOff) } catch (_: Exception) {}
         try { Store.prefs(this).unregisterOnSharedPreferenceChangeListener(prefListener) } catch (_: Exception) {}
         super.onDestroy()

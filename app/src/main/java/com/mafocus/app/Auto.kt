@@ -108,7 +108,8 @@ class GuardService : Service() {
             if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) cur = e.packageName
         }
         since = now - 2000
-        if (Store.APPS.containsKey(cur)) { offVotes = 0; Auto.setEnabled(this, true) }
+        val want = Store.APPS.containsKey(cur) || (Store.breatherOn(this) && Store.breatherApps(this).contains(cur))
+        if (want) { offVotes = 0; Auto.setEnabled(this, true) }
         else if (++offVotes >= 2) Auto.setEnabled(this, false)   // 2 polls in a row, avoids flapping
     }
 
