@@ -110,7 +110,7 @@ object Store {
 
     fun theme(c: Context) = p(c).getInt("theme", 0)
     fun setTheme(c: Context, v: Int) = p(c).edit().putInt("theme", v).apply()
-    fun wsize(c: Context) = p(c).getInt("wsize", 1)
+    fun wsize(c: Context) = p(c).getInt("wsize", 2)
     fun setWsize(c: Context, v: Int) = p(c).edit().putInt("wsize", v).apply()
     fun wx(c: Context) = p(c).getInt("wx", 1)
     fun setWx(c: Context, v: Int) = p(c).edit().putInt("wx", v).apply()
@@ -137,4 +137,46 @@ object Store {
         return s.split(",").filter { it.isNotBlank() }.toSet()
     }
     fun setBreatherApps(c: Context, set: Set<String>) = p(c).edit().putString("bapps", set.joinToString(",")).apply()
+
+    // floating counter look
+    fun wstyle(c: Context) = p(c).getInt("wstyle", 2)
+    fun setWstyle(c: Context, v: Int) = p(c).edit().putInt("wstyle", v).apply()
+    fun wcolor(c: Context) = p(c).getInt("wcolor", -1)
+    fun setWcolor(c: Context, v: Int) = p(c).edit().putInt("wcolor", v).apply()
+    fun walpha(c: Context) = p(c).getInt("walpha", 95)
+    fun setWalpha(c: Context, v: Int) = p(c).edit().putInt("walpha", v).apply()
+    fun wanim(c: Context) = p(c).getInt("wanim", 1)
+    fun setWanim(c: Context, v: Int) = p(c).edit().putInt("wanim", v).apply()
+    fun wvib(c: Context) = p(c).getBoolean("wvib", true)
+    fun setWvib(c: Context, v: Boolean) = p(c).edit().putBoolean("wvib", v).apply()
+    fun wedge(c: Context) = p(c).getBoolean("wedge", true)
+    fun setWedge(c: Context, v: Boolean) = p(c).edit().putBoolean("wedge", v).apply()
+
+    // strict mode
+    fun rlevel(c: Context) = p(c).getInt("rlevel", 2)          // 0 brutal, 1 extra brutal, 2 escalating
+    fun setRlevel(c: Context, v: Int) = p(c).edit().putInt("rlevel", v).apply()
+    fun userName(c: Context) = p(c).getString("uname", "") ?: ""
+    fun setUserName(c: Context, v: String) = p(c).edit().putString("uname", v.trim()).apply()
+    fun phrase(c: Context) = p(c).getString("phrase", "") ?: ""
+    fun setPhrase(c: Context, v: String) = p(c).edit().putString("phrase", v).apply()
+
+    // breather "don't ask again until"
+    fun passUntil(c: Context, pkg: String) = p(c).getLong("pass_$pkg", 0L)
+    fun setPass(c: Context, pkg: String, until: Long) = p(c).edit().putLong("pass_$pkg", until).apply()
+
+    // home-screen box widget
+    fun bwMain(c: Context) = p(c).getInt("bwmain", 0)
+    fun setBwMain(c: Context, v: Int) = p(c).edit().putInt("bwmain", v).apply()
+    fun bwExtra(c: Context) = p(c).getInt("bwextra", 22)       // brain, reel time, next task
+    fun setBwExtra(c: Context, v: Int) = p(c).edit().putInt("bwextra", v).apply()
+    fun bwTheme(c: Context) = p(c).getInt("bwtheme", 0)
+    fun setBwTheme(c: Context, v: Int) = p(c).edit().putInt("bwtheme", v).apply()
+    fun bwAlpha(c: Context) = p(c).getInt("bwalpha", 100)
+    fun setBwAlpha(c: Context, v: Int) = p(c).edit().putInt("bwalpha", v).apply()
+    fun bwSize(c: Context) = p(c).getInt("bwsize", 1)
+    fun setBwSize(c: Context, v: Int) = p(c).edit().putInt("bwsize", v).apply()
+    fun bwTitle(c: Context) = p(c).getString("bwtitle", "Exam") ?: "Exam"
+    fun setBwTitle(c: Context, v: String) = p(c).edit().putString("bwtitle", v.trim()).apply()
+    fun bwDate(c: Context) = p(c).getString("bwdate", "") ?: ""
+    fun setBwDate(c: Context, v: String) = p(c).edit().putString("bwdate", v).apply()
 }

@@ -1,6 +1,9 @@
 package com.mafocus.app
 
 import android.animation.ValueAnimator
+import android.app.DatePickerDialog
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -167,15 +170,15 @@ class MainActivity : Activity() {
         setContentView(outer)
 
         header(root)
-        when (tab) { 0 -> home(root); 1 -> stats(root); 2 -> tasksPage(root); 3 -> breatherPage(root); else -> settings(root) }
+        when (tab) { 0 -> home(root); 1 -> stats(root); 2 -> tasksPage(root); 3 -> breatherPage(root); 4 -> widgetsPage(root); else -> settings(root) }
         sv.post { sv.scrollTo(0, keepY) }
     }
 
     private fun tabBar() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; setBackgroundColor(CARD)
-        listOf("Home", "Stats", "Tasks", "Breather", "Settings").forEachIndexed { i, n ->
+        listOf("Home", "Stats", "Tasks", "Breather", "Widgets", "Settings").forEachIndexed { i, n ->
             addView(TextView(this@MainActivity).apply {
-                text = n.uppercase(); textSize = 10f; letterSpacing = 0.05f; gravity = Gravity.CENTER
+                text = n.uppercase(); textSize = 9f; letterSpacing = 0.03f; gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(if (i == tab) AC else MU)
                 setPadding(0, dp(16), 0, dp(16))
@@ -524,20 +527,154 @@ class MainActivity : Activity() {
         dlg.setContentView(v); dlg.show(); v.start()
     }
 
-    // Full-screen live preview of the real widget while you change its size and position
+    // ---------- strict-mode unlock phrase ----------
+    private fun dialogBox(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(10), dp(20), 0)
+    }
+    private fun dlgText(s: String, sz: Float = 13f, c: Int = Color.LTGRAY) = TextView(this).apply {
+        text = s; textSize = sz; setTextColor(c); setPadding(0, dp(6), 0, dp(6))
+    }
+
+    // Strict mode is locked: type your phrase exactly to change it
+    private fun needPhrase(then: () -> Unit) {
+        val ph = Store.phrase(this)
+        if (Store.mode(this) != 2 || ph.isEmpty()) { then(); return }
+        val et = field("Type the phrase exactly", InputType.TYPE_CLASS_TEXT)
+        val bx = dialogBox()
+        bx.addView(dlgText("Strict mode is locked. Type this phrase exactly to continue:"))
+        bx.addView(dlgText("\u201C$ph\u201D", 16f, Color.WHITE))
+        bx.addView(et)
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Unlock strict mode").setView(bx)
+            .setPositiveButton("Unlock") { _, _ ->
+                if (et.text.toString().trim() == ph) then()
+                else Toast.makeText(this, "That doesn't match the phrase", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    // Set (and retype to confirm) the phrase you will have to type to turn strict mode off
+    private fun askNewPhrase(done: () -> Unit) {
+        val a = field("Your unlock phrase (12+ characters)", InputType.TYPE_CLASS_TEXT)
+        val b = field("Retype the phrase", InputType.TYPE_CLASS_TEXT)
+        val bx = dialogBox()
+        bx.addView(dlgText("Pick a phrase you'll have to type to turn strict mode off. Make it long and a bit annoying."))
+        bx.addView(a); bx.addView(b, lp(MP, WC).apply { topMargin = dp(8) })
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Unlock phrase").setView(bx)
+            .setPositiveButton("Save") { _, _ ->
+                val x = a.text.toString().trim()
+                if (x.length >= 12 && x == b.text.toString().trim()) { Store.setPhrase(this, x); done() }
+                else Toast.makeText(this, "Both must match and be at least 12 characters", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun setStrict() {
+        if (Store.phrase(this).isNotEmpty()) { Store.setMode(this, 2); build(); return }
+        askNewPhrase { Store.setMode(this, 2); build() }
+    }
+
+    // ---------- WIDGETS (home-screen box) ----------
+    private fun chipStyle(tv: TextView, text: String, sel: Boolean) {
+        tv.text = text; tv.textSize = 13f
+        tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        tv.setTextColor(if (sel) Color.WHITE else TX); tv.background = round(if (sel) AC else BTN2, 12)
+    }
+
+    private fun boxPreview(): LinearLayout {
+        val th = THEMES[Store.bwTheme(this).coerceIn(0, THEMES.size - 1)]
+        val k = floatArrayOf(0.85f, 1f, 1.2f)[Store.bwSize(this).coerceIn(0, 2)]
+        val a = Store.bwAlpha(this) * 255 / 100
+        val fill = (Color.parseColor(th.card) and 0x00FFFFFF) or (a shl 24)
+        val b = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = round(fill, 22, Color.parseColor(th.line))
+        }
+        b.addView(tx("MA FOCUS", 9f, Color.parseColor(th.mu), "sans-serif-medium").apply { letterSpacing = 0.15f })
+        b.addView(tx(BoxData.text(this, Store.bwMain(this)), 22f * k, Color.parseColor(th.ac), "sans-serif-black"))
+        if (Store.bwMain(this) == 0) b.addView(tx(BoxData.bar(this), 11f, Color.parseColor(th.ac)))
+        BoxData.extras(this).forEach { b.addView(tx(BoxData.text(this, it), 12f * k, Color.parseColor(th.tx))) }
+        return b
+    }
+
+    private fun widgetsPage(root: LinearLayout) {
+        val a = card(root)
+        a.addView(label("Home-screen widget"))
+        a.addView(tx("A box for your home screen, like Digital Wellbeing. After adding it, press and hold it to resize: make it a square or a wide rectangle.", 13f, MU))
+        btn(a, "Add to home screen") {
+            val awm = AppWidgetManager.getInstance(this)
+            if (awm.isRequestPinAppWidgetSupported) awm.requestPinAppWidget(ComponentName(this, BoxWidget::class.java), null, null)
+            else Toast.makeText(this, "Press and hold your home screen, then Widgets, then MA FOCUS", Toast.LENGTH_LONG).show()
+        }
+
+        val pv = card(root)
+        pv.addView(label("Preview"))
+        pv.addView(boxPreview(), lp(dp(220), WC).apply { gravity = Gravity.CENTER_HORIZONTAL })
+
+        val w = card(root)
+        w.addView(label("Big line"))
+        val main = Store.bwMain(this)
+        chips(w, BoxData.NAMES.size, { i, tv -> chipStyle(tv, BoxData.NAMES[i], i == main) }) {
+            Store.setBwMain(this, it); BoxWidget.refresh(this); build()
+        }
+        w.addView(tx("Also show", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val mask = Store.bwExtra(this)
+        chips(w, BoxData.NAMES.size, { i, tv -> chipStyle(tv, BoxData.NAMES[i], ((mask shr i) and 1) == 1) }) {
+            Store.setBwExtra(this, mask xor (1 shl it)); BoxWidget.refresh(this); build()
+        }
+
+        val cd = card(root)
+        cd.addView(label("Countdown"))
+        cd.addView(tx("Counts the days to an exam, a deadline, anything.", 13f, MU))
+        val tt = field("Name, e.g. Exam", InputType.TYPE_CLASS_TEXT).apply { setText(Store.bwTitle(this@MainActivity)) }
+        cd.addView(tt, lp(MP, WC).apply { topMargin = dp(8) })
+        val ds = Store.bwDate(this)
+        cd.addView(tx(if (ds.isEmpty()) "No date picked yet." else "Date: " + SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()).format(dayFmt.parse(ds) ?: Date()), 13f, TX)
+            .apply { setPadding(0, dp(8), 0, 0) })
+        btn(cd, "Pick date", false) {
+            val c = Calendar.getInstance()
+            DatePickerDialog(this, { _, y, mo, d ->
+                Store.setBwTitle(this, tt.text.toString())
+                Store.setBwDate(this, "%04d%02d%02d".format(y, mo + 1, d)); BoxWidget.refresh(this); build()
+            }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
+        }
+        btn(cd, "Save name") { Store.setBwTitle(this, tt.text.toString()); BoxWidget.refresh(this); build() }
+
+        val lk = card(root)
+        lk.addView(label("Look"))
+        lk.addView(tx("Theme", 12f, MU))
+        val ct = Store.bwTheme(this)
+        chips(lk, THEMES.size, { i, tv ->
+            val th = THEMES[i]
+            tv.text = (if (i == ct) "✓  " else "") + th.name; tv.textSize = 13f
+            tv.setTextColor(Color.parseColor(th.tx)); tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            tv.background = round(Color.parseColor(th.card), 12, Color.parseColor(if (i == ct) th.ac else th.line))
+        }) { Store.setBwTheme(this, it); BoxWidget.refresh(this); build() }
+        lk.addView(tx("Background", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        val av = listOf(100, 80, 60, 40)
+        seg(lk, listOf("Solid", "80%", "60%", "40%"), av.indexOf(Store.bwAlpha(this)).coerceAtLeast(0)) {
+            Store.setBwAlpha(this, av[it]); BoxWidget.refresh(this); build()
+        }
+        lk.addView(tx("Text size", 12f, MU).apply { setPadding(0, dp(14), 0, 0) })
+        seg(lk, listOf("Compact", "Normal", "Large"), Store.bwSize(this)) { Store.setBwSize(this, it); BoxWidget.refresh(this); build() }
+    }
+
+    // Full-screen live preview of the real floating counter while you change how it looks
     private fun openWidgetPreview() {
         val dlg = android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar_Fullscreen)
         val frame = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0A0A0A")) }
         frame.addView(tx("Reels preview", 14f, Color.parseColor("#555555")), FrameLayout.LayoutParams(WC, WC, Gravity.CENTER))
         val pill = TextView(this).apply {
-            text = "🧠  12 / 30"; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-            background = GradientDrawable().apply { cornerRadius = 60f; setColor(Store.color(80)) }
+            gravity = Gravity.CENTER; maxWidth = (resources.displayMetrics.widthPixels * 0.9f).toInt()
         }
         frame.addView(pill, FrameLayout.LayoutParams(WC, WC))
         fun layoutPill() {
-            val sz = floatArrayOf(11f, 14f, 18f)[Store.wsize(this).coerceIn(0, 2)]; val k = sz / 14f
+            val sz = WidgetStyle.sizeSp(this); val k = sz / 14f
+            pill.text = WidgetStyle.span("🧠  34 / 30\nTask 1: Revise chapter 3")
             pill.textSize = sz
-            pill.setPadding((40 * k).toInt(), (16 * k).toInt(), (40 * k).toInt(), (16 * k).toInt())
+            pill.setPadding((36 * k).toInt(), (14 * k).toInt(), (36 * k).toInt(), (14 * k).toInt())
+            WidgetStyle.apply(this, pill, 35)
             val x = Store.wx(this)
             val l = pill.layoutParams as FrameLayout.LayoutParams
             l.gravity = Gravity.TOP or (when (x) { 0 -> Gravity.START; 2 -> Gravity.END; else -> Gravity.CENTER_HORIZONTAL })
@@ -545,30 +682,51 @@ class MainActivity : Activity() {
             l.topMargin = (frame.height * 0.88f * Store.wy(this) / 100f).toInt()
             pill.layoutParams = l
         }
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; background = round(CARD, 20, LINE)
-            setPadding(dp(18), dp(14), dp(18), dp(14))
+        fun sbar(mx: Int, prog: Int, cb: (Int) -> Unit) = SeekBar(this).apply {
+            this.max = mx; progress = prog
+            progressTintList = ColorStateList.valueOf(AC); thumbTintList = ColorStateList.valueOf(AC)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, v: Int, u: Boolean) { cb(v) }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
         }
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(14)) }
         fun fill() {
             panel.removeAllViews()
-            panel.addView(tx("Size", 12f, MU))
-            seg(panel, listOf("Small", "Medium", "Large"), Store.wsize(this)) { Store.setWsize(this, it); fill(); layoutPill() }
-            panel.addView(tx("Horizontal position", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
+            fun sec(t: String) = panel.addView(tx(t, 12f, MU).apply { setPadding(0, dp(12), 0, 0) })
+            sec("Style")
+            seg(panel, WidgetStyle.STYLE_NAMES, Store.wstyle(this)) { Store.setWstyle(this, it); fill(); layoutPill() }
+            sec("Color")
+            val cc = if (Store.wcolor(this) < 0) 0 else Store.wcolor(this)
+            chips(panel, WidgetStyle.COLOR_NAMES.size, { i, tv -> chipStyle(tv, WidgetStyle.COLOR_NAMES[i], i == cc) }) {
+                Store.setWcolor(this, if (it == 0) -1 else it); fill(); layoutPill()
+            }
+            sec("Size")
+            seg(panel, listOf("Small", "Medium", "Large", "XL"), Store.wsize(this)) { Store.setWsize(this, it); fill(); layoutPill() }
+            sec("Horizontal position")
             seg(panel, listOf("Left", "Center", "Right"), Store.wx(this)) { Store.setWx(this, it); fill(); layoutPill() }
-            panel.addView(tx("Vertical position", 12f, MU).apply { setPadding(0, dp(10), 0, 0) })
-            panel.addView(SeekBar(this).apply {
-                max = 100; progress = Store.wy(this@MainActivity)
-                progressTintList = ColorStateList.valueOf(AC); thumbTintList = ColorStateList.valueOf(AC)
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(s: SeekBar?, v: Int, u: Boolean) { Store.setWy(this@MainActivity, v); layoutPill() }
-                    override fun onStartTrackingTouch(s: SeekBar?) {}
-                    override fun onStopTrackingTouch(s: SeekBar?) {}
-                })
-            }, lp(MP, WC))
+            sec("Vertical position")
+            panel.addView(sbar(100, Store.wy(this)) { Store.setWy(this, it); layoutPill() }, lp(MP, WC))
+            sec("Opacity")
+            panel.addView(sbar(70, Store.walpha(this) - 30) { Store.setWalpha(this, it + 30); layoutPill() }, lp(MP, WC))
+            sec("How hard to grab your attention")
+            seg(panel, listOf("Calm", "Loud", "Obnoxious"), Store.wanim(this)) { Store.setWanim(this, it); fill() }
+            btn(panel, "Test the animation", false) {
+                val lvl = Store.wanim(this)
+                if (lvl > 0) pill.animate().scaleX(if (lvl == 1) 1.2f else 1.35f).scaleY(if (lvl == 1) 1.2f else 1.35f)
+                    .rotation(if (lvl == 2) 5f else 0f).setDuration(110).withEndAction {
+                        pill.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(260).setInterpolator(OvershootInterpolator(2f)).start()
+                    }.start()
+            }
+            btn(panel, "Vibrate past limit: " + (if (Store.wvib(this)) "ON" else "OFF"), false) { Store.setWvib(this, !Store.wvib(this)); fill() }
+            btn(panel, "Red screen edge past limit: " + (if (Store.wedge(this)) "ON" else "OFF"), false) { Store.setWedge(this, !Store.wedge(this)); fill() }
             btn(panel, "Done") { dlg.dismiss() }
         }
         fill()
-        frame.addView(panel, FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM).apply { setMargins(dp(12), 0, dp(12), dp(12)) })
+        val sc = ScrollView(this).apply { background = round(CARD, 20, LINE); addView(panel) }
+        frame.addView(sc, FrameLayout.LayoutParams(MP, (resources.displayMetrics.heightPixels * 0.5f).toInt(), Gravity.BOTTOM)
+            .apply { setMargins(dp(12), 0, dp(12), dp(12)) })
         dlg.setContentView(frame); dlg.show()
         frame.post { layoutPill() }
     }
@@ -633,22 +791,37 @@ class MainActivity : Activity() {
         l.addView(label("Daily reel limit"))
         val lf = field("30", InputType.TYPE_CLASS_NUMBER).apply { setText(lim.toString()) }
         l.addView(lf)
-        btn(l, "Save limit") { Store.setLimit(this, lf.text.toString().toIntOrNull() ?: 30); build() }
-        btn(l, "Reset today's count", false) { Store.setCount(this, 0); build() }
+        btn(l, "Save limit") { val v = lf.text.toString().toIntOrNull() ?: 30; needPhrase { Store.setLimit(this, v); build() } }
+        btn(l, "Reset today's count", false) { needPhrase { Store.setCount(this, 0); build() } }
 
         val r = card(root)
         r.addView(label("Reminders"))
         r.addView(tx("Remind me every this many reels once I'm past my limit:", 13f, MU))
         val rf = field("5", InputType.TYPE_CLASS_NUMBER).apply { setText(iv.toString()) }
         r.addView(rf, lp(MP, WC).apply { topMargin = dp(8) })
-        btn(r, "Save reminder interval") { Store.setInterval(this, rf.text.toString().toIntOrNull() ?: 5); build() }
+        btn(r, "Save reminder interval") { val v = rf.text.toString().toIntOrNull() ?: 5; needPhrase { Store.setInterval(this, v); build() } }
+        r.addView(tx("Your name (used in strict-mode roasts)", 13f, MU).apply { setPadding(0, dp(16), 0, 0) })
+        val nm = Store.userName(this)
+        val nf = field("e.g. Alex", InputType.TYPE_CLASS_TEXT).apply { setText(nm) }
+        r.addView(nf, lp(MP, WC).apply { topMargin = dp(8) })
+        btn(r, "Save name", false) { Store.setUserName(this, nf.text.toString()); build() }
         r.addView(tx("Reminder style", 13f, MU).apply { setPadding(0, dp(16), 0, 0) })
-        seg(r, listOf("Gentle", "Medium", "Strict"), mode) { Store.setMode(this, it); build() }
+        seg(r, listOf("Gentle", "Medium", "Strict"), mode) { sel ->
+            if (sel == 2) setStrict()
+            else if (mode == 2) needPhrase { Store.setMode(this, sel); build() }
+            else { Store.setMode(this, sel); build() }
+        }
         r.addView(tx(listOf(
             "Gentle: your tasks one by one, then kind messages asking you to close the app.",
             "Medium: your tasks one by one, then rude, sarcastic messages.",
-            "Strict: your tasks, then brutal roasts. From the 3rd reminder on, the app is closed for you (sent to the home screen), and again on every reel after that today."
+            "Strict: your tasks, then brutal personal roasts. From the 3rd reminder on, a roast shows for a few seconds, the app is closed (sent home) and the roast stays on your home screen. It repeats on every reel after that today. Needs your unlock phrase to turn off."
         )[mode], 12f, MU).apply { setPadding(0, dp(8), 0, 0) })
+        if (mode == 2) {
+            r.addView(tx("Roast level", 12f, MU).apply { setPadding(0, dp(12), 0, 0) })
+            seg(r, listOf("Brutal", "Extra brutal", "Escalating"), Store.rlevel(this)) { Store.setRlevel(this, it); build() }
+        }
+        if (Store.phrase(this).isNotEmpty())
+            btn(r, "Change unlock phrase", false) { needPhrase { askNewPhrase { build() } } }
 
         // widget
         val w = card(root)
@@ -657,7 +830,7 @@ class MainActivity : Activity() {
         btn(w, if (Store.widgetOn(this)) "Turn widget off" else "Turn widget on", !Store.widgetOn(this)) {
             Store.setWidgetOn(this, !Store.widgetOn(this)); build()
         }
-        btn(w, "Customize size & position (live preview)", false) { openWidgetPreview() }
+        btn(w, "Customize look, size & position (live preview)", false) { openWidgetPreview() }
 
         // automatic mode
         val am = card(root)
@@ -681,9 +854,11 @@ class MainActivity : Activity() {
             }
         btn(am, "Allow background running (battery)", false) { go(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         if (okU && okS) btn(am, if (Store.auto(this)) "Turn automatic mode OFF" else "Turn automatic mode ON", !Store.auto(this)) {
-            val v = !Store.auto(this); Store.setAuto(this, v)
-            if (v) Auto.start(this) else Auto.stop(this)
-            build()
+            needPhrase {
+                val v = !Store.auto(this); Store.setAuto(this, v)
+                if (v) Auto.start(this) else Auto.stop(this)
+                build()
+            }
         }
 
         val up = card(root)
@@ -691,8 +866,7 @@ class MainActivity : Activity() {
         up.addView(tx("Payment apps refuse to run while any screen-access app is on.", 13f, MU))
         if (Store.auto(this)) up.addView(tx("Automatic mode is on: screen access stays off outside Instagram and YouTube.", 13f, TX).apply { setPadding(0, dp(8), 0, 0) })
         else if (accessOn()) btn(up, "Pause screen access", false) {
-            ReelService.instance?.disableSelf()
-            root.postDelayed({ build() }, 700)
+            needPhrase { ReelService.instance?.disableSelf(); root.postDelayed({ build() }, 700) }
         } else btn(up, "Turn screen access back on") { go(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
 
         val d = card(root)

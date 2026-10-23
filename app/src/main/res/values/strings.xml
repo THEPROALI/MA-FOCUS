@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">MA FOCUS</string>
     <string name="svc_desc">Counts reels you scroll in Instagram, YouTube, Facebook and Snapchat and shows a live counter. Nothing leaves your phone.</string>
+    <string name="box_desc">Reels, brain health, countdown and tasks at a glance</string>
 </resources>
